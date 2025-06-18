@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "odoo_task_cli"
+version = "0.1.0"
+description = "A tool for automating the migration of Odoo databases from one version to another."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "Héctor Aular", email = "aular.hector.dev@gmail.com" },
+]
+dependencies = [
+    "docker==6.1.3",
+    "gitpython==3.1.40",
+    "beautifulsoup4==4.12.2",
+    "requests==2.31.0",
+    "typer>=0.9.0",
+    "toml>=0.10.2"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.3",
+]
+
+[project.scripts]
+otcli = "odoo_task_cli.__main__:main"
+
+[tool.setuptools]
+packages = ["odoo_task_cli"]
+package-dir = {"" = "src"}
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+python_files = "test_*.py"
