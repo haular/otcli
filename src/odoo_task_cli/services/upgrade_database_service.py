@@ -1,7 +1,7 @@
 import logging
 
 import typer
-from odoo_task_cli.app_config import config
+
 from odoo_task_cli.infrastructure.odoo_client import run_upgrade, check_existing_upgrade
 
 logger = logging.getLogger(__name__)

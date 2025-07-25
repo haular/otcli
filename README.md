@@ -102,7 +102,8 @@ The tool will guide you through the migration process with interactive prompts.
 
 ## Configuration
 
-Configuration is done through TOML files in the `~/.odoo_task_cli_config/clientes/` directory. Each client will have its own TOML file (e.g., `my_client.toml`).
+Configuration is done through TOML files in the `~/.odoo_task_cli_config/clientes/` directory. Each client will have its
+own TOML file (e.g., `my_client.toml`).
 
 Each configuration file contains the following sections:
 
@@ -112,14 +113,16 @@ Each configuration file contains the following sections:
     - `url`: URL used to restore the database via a CURL request (e.g., http://localhost:8069).
     - `upgrade_target`: Defines the target for the database upgrade (e.g., '18.0').
     - `master_pwd`: Odoo master password for database operations.
-    - `filestore_dir`: Absolute path to the Odoo filestore directory. 'filestore' and the technical client name will be appended (e.g., /mnt/filestore/filestore_my_client).
+    - `filestore_dir`: Absolute path to the Odoo filestore directory. 'filestore' and the technical client name will be
+      appended (e.g., /mnt/filestore/filestore_my_client).
     - `code_subscription`: Odoo subscription code for the upgrade service.
     - `db_container_name`: Name of the Docker database container (PostgreSQL).
     - `odoo_container_name`: Name of the Odoo instance Docker container.
     - `repo_path`: Absolute path to the project's Git repository.
 
 - **Commands**:
-    - `commands`: A list of commands to execute after certain operations. Each command can be a Git hash or a shell command.
+    - `commands`: A list of commands to execute after certain operations. Each command can be a Git hash or a shell
+      command.
 
 ## Development
 

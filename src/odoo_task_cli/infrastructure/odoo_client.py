@@ -2,12 +2,13 @@ import logging
 import os
 import shutil
 import subprocess
-import sys
 import zipfile
 from typing import List
 
 import typer
-from odoo_task_cli.app_config import config
+
+from odoo_task_cli.config import config
+from odoo_task_cli.domain.exceptions import OdooCLIError
 from odoo_task_cli.domain.services import run
 from odoo_task_cli.infrastructure.docker_client import _get_container, _copy_file_to_container, _exec_in_container
 
@@ -20,7 +21,11 @@ def check_connection() -> bool:
     typer.echo(f"Checking connection to Odoo server at {url}...")
 
     result = run(
-        ["curl", "-Is", url],
+        [
+            "curl",
+            "-Is",
+            url
+        ],
         check=False,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -119,10 +124,8 @@ def get_database_list() -> List[str]:
         if len(lines) > 1:
             return [line.strip() for line in lines[1:] if line.strip()]
         return []
-    except Exception:
-        typer.echo("Failed to get database list.")
-        logger.exception("Failed to get database list")
-        sys.exit(1)
+    except Exception as e:
+        raise OdooCLIError(f"Failed to get database list: {e}")
 
 
 def download_upgrade_script() -> str:
@@ -150,7 +153,7 @@ def run_upgrade(backup_file: str) -> str:
     environment = config.environment
 
     logger.info(f"Running Odoo upgrade service for {backup_file}...")
-    logger.info(f"Target version: {config.odoo.upgrade_target}")
+    logger.info(f"Target version: {config.upgrade_target}")
 
     # Download upgrade script if it doesn't exist
     upgrade_script = download_upgrade_script()
@@ -199,15 +202,14 @@ def check_odoo_container_connection() -> bool:
         ]
         result = run(command, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return result.returncode == 0
-    except Exception:
-        logger.exception("Failed to check Odoo container connection")
-        return False
+    except Exception as e:
+        raise OdooCLIError(f"Failed to check Odoo container connection: {e}")
 
 
 def restore_database_from_container(backup_file: str) -> None:
-    target_db_container_name = config.docker.db_container_name
-    target_db_name = config.docker.db_name
-    target_filestore_dir = config.odoo.filestore_dir
+    target_db_container_name = config.db_container_name
+    target_db_name = config.db_name
+    target_filestore_dir = config.filestore_dir
 
     temp_extract_dir = "./temp_extracted_backup"
     os.makedirs(temp_extract_dir, exist_ok=True)
@@ -233,12 +235,46 @@ def restore_database_from_container(backup_file: str) -> None:
 
     # Restore filestore
     if os.path.exists(filestore_path_host):
-        logger.info(f"Copying filestore to {target_filestore_dir}...")
-        if os.path.exists(target_filestore_dir):
-            shutil.rmtree(target_filestore_dir)
-        shutil.copytree(filestore_path_host, target_filestore_dir)
-        logger.info("Filestore copied successfully.")
+        # Construct the final destination path: base_path_from_config/db_name
+        final_filestore_path = os.path.join(target_filestore_dir, target_db_name)
+
+        # Ensure the base directory from the config exists
+        os.makedirs(target_filestore_dir, exist_ok=True)
+
+        logger.info(f"Moving extracted filestore to its final destination: {final_filestore_path}")
+
+        # If the final destination already exists, remove it to ensure a clean move.
+        if os.path.exists(final_filestore_path):
+            shutil.rmtree(final_filestore_path)
+
+        # Move the extracted 'filestore' directory, renaming it to the database's technical name in the process.
+        shutil.move(filestore_path_host, final_filestore_path)
+
+        logger.info("Filestore restoration completed successfully.")
     else:
         logger.info("No filestore found in backup, skipping filestore restoration.")
 
     shutil.rmtree(temp_extract_dir)
+
+
+def get_database_creation_date(db_name: str) -> str:
+    """
+    Get the creation date of a database.
+
+    Args:
+        db_name: Name of the database
+
+    Returns:
+        Creation date of the database
+    """
+    p = subprocess.Popen(
+        f"PGPASSWORD=odoo psql -h localhost -U odoo -d {db_name} -t -c \"SELECT pg_database.datname, (pg_stat_file('base/'||oid ||'/PG_VERSION')).modification FROM pg_database WHERE datname = '{db_name}';\"",
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    output, err = p.communicate()
+    if p.returncode != 0:
+        logger.error(f"Error getting database creation date: {err.decode('utf-8')}")
+        return ""
+    return output.decode("utf-8").strip()

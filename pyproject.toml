@@ -12,6 +12,15 @@ license = { text = "MIT" }
 authors = [
     { name = "Héctor Aular", email = "aular.hector.dev@gmail.com" },
 ]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Build Tools",
+]
 dependencies = [
     "docker==6.1.3",
     "gitpython==3.1.40",
@@ -26,12 +35,16 @@ dev = [
     "pytest>=7.4.3",
 ]
 
+[project.urls]
+"Homepage" = "https://github.com/tu_usuario/odoo_cli_tool"
+"Bug Tracker" = "https://github.com/tu_usuario/odoo_cli_tool/issues"
+
 [project.scripts]
 otcli = "odoo_task_cli.__main__:main"
 
 [tool.setuptools]
 packages = ["odoo_task_cli"]
-package-dir = {"" = "src"}
+package-dir = { "" = "src" }
 
 [tool.pytest.ini_options]
 testpaths = ["."]

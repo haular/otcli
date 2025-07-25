@@ -1,11 +1,15 @@
+import glob
 import logging
+import os
 
 import typer
-from odoo_task_cli.app_config import initialize_client_config, config
-from odoo_task_cli.domain.use_cases.backup_odoo_use_case import backup_odoo_instance
-from odoo_task_cli.domain.use_cases.edit_configuration_use_case import edit_configuration_interactive
-from odoo_task_cli.domain.use_cases.restore_database_use_case import restore_odoo_database
-from odoo_task_cli.domain.use_cases.upgrade_database_use_case import upgrade_database
+
+from odoo_task_cli.config import initialize_client_config, config
+from odoo_task_cli.domain.exceptions import OdooCLIError
+from odoo_task_cli.services.backup_odoo_service import backup_odoo_instance
+from odoo_task_cli.services.edit_configuration_service import edit_configuration_interactive
+from odoo_task_cli.services.restore_database_service import restore_odoo_database
+from odoo_task_cli.services.upgrade_database_service import upgrade_database
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +21,11 @@ def main(ctx: typer.Context):
     """
     Odoo CLI Tool for database migration and management.
     """
-    # This callback is executed before any command.
-    # It can be used for global initialization.
-    pass
+    # Centralized client configuration initialization.
+    # This runs once before any command is executed.
+    if not initialize_client_config(edit_configuration_interactive):
+        typer.echo("No se pudo inicializar la configuración del cliente. Saliendo.")
+        raise typer.Exit(code=1)
 
 
 @app.command(name="backup")
@@ -29,9 +35,6 @@ def backup_command(
     """
     Realiza un backup de la base de datos Odoo.
     """
-    if not initialize_client_config():
-        typer.echo("No se pudo inicializar la configuración del cliente. Saliendo.")
-        raise typer.Exit(code=1)
     backup_odoo_instance(with_filestore=with_filestore)
     typer.echo("Backup completado.")
 
@@ -41,9 +44,6 @@ def restore_command():
     """
     Restaura una base de datos Odoo.
     """
-    if not initialize_client_config():
-        typer.echo("No se pudo inicializar la configuración del cliente. Saliendo.")
-        raise typer.Exit(code=1)
     restore_odoo_database()
     typer.echo("Restauración completada.")
 
@@ -55,17 +55,12 @@ def upgrade_command(
     """
     Actualiza una base de datos Odoo.
     """
-    if not initialize_client_config():
-        typer.echo("No se pudo inicializar la configuración del cliente. Saliendo.")
+    try:
+        upgraded_file = upgrade_database(backup_file)
+        typer.echo(f"Base de datos actualizada. Archivo: {upgraded_file}")
+    except OdooCLIError as e:
+        typer.echo(f"Error durante la actualización: {e}")
         raise typer.Exit(code=1)
-
-    # The original code in __main__.py had a hardcoded path for backup_file
-    # when calling step_upgrade_database. We need to decide how to handle this.
-    # For now, I'll assume backup_file is passed directly.
-    # If it needs to be constructed from config, that logic should be here or in the use case.
-
-    upgraded_file = upgrade_database(backup_file)
-    typer.echo(f"Base de datos actualizada. Archivo: {upgraded_file}")
 
 
 @app.command(name="interactive")
@@ -73,10 +68,7 @@ def interactive_command():
     """
     Inicia el modo interactivo para la herramienta Odoo CLI.
     """
-    if not initialize_client_config():
-        typer.echo("No se pudo inicializar la configuración del cliente. Saliendo.")
-        raise typer.Exit(code=1)
-
+    # The initialization is now handled by the main callback.
     while True:
         typer.echo("\n--- Menú Principal ---")
         typer.echo("1. Realizar Backup")
@@ -95,8 +87,6 @@ def interactive_command():
             restore_odoo_database()
             typer.echo("Operación de Restauración completada.")
         elif choice == 3:
-            import os
-            import glob
             backup_dir = config.client_backup_dir
             zip_files = glob.glob(os.path.join(backup_dir, "*.zip"))
 
@@ -123,14 +113,12 @@ def interactive_command():
             upgrade_database(backup_file=selected_backup_file)
             typer.echo("Operación de Actualización completada.")
         elif choice == 4:
-            edit_configuration_interactive()
+            try:
+                edit_configuration_interactive()
+            except OdooCLIError as e:
+                typer.echo(f"Error al editar la configuración: {e}")
         elif choice == 0:
             typer.echo("Saliendo del modo interactivo. ¡Hasta luego!")
             raise typer.Exit()
         else:
             typer.echo("Opción no válida. Por favor, intenta de nuevo.")
-
-
-# This is the entry point for the Typer application
-if __name__ == "__main__":
-    app()

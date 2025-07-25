@@ -3,11 +3,12 @@ Utility functions for Git operations.
 """
 import logging
 import os
-import sys
 
 import typer
 from git import Repo, GitCommandError
-from odoo_task_cli.app_config import config
+
+from odoo_task_cli.config import config
+from odoo_task_cli.domain.exceptions import GitCheckoutError
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,5 @@ def _checkout_commit(commit_hash: str) -> None:
     try:
         typer.echo(f"Checking out commit: {commit_hash}")
         repo.git.checkout(commit_hash)
-    except GitCommandError:
-        typer.echo(f"Error: Failed to checkout commit '{commit_hash}'")
-        logger.exception(f"Failed to checkout commit '{commit_hash}'")
-        sys.exit(1)
+    except GitCommandError as e:
+        raise GitCheckoutError(f"Error: Failed to checkout commit '{commit_hash}': {e}")

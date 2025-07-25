@@ -1,5 +1,0 @@
-# Global configuration settings for the Odoo migration tool.
-# These settings are independent of the client selected.
-
-# Base directory of the project
-directory_path = ""  # This will be set programmatically

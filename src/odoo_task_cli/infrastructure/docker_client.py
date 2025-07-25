@@ -8,6 +8,8 @@ from typing import Optional
 import docker
 import typer
 from docker.models.containers import Container
+
+from odoo_task_cli.domain.exceptions import ContainerNotFoundError
 from odoo_task_cli.domain.services import run
 
 logger = logging.getLogger(__name__)
@@ -88,15 +90,11 @@ def _exec_in_container(container: Container, command: str, sys_exit=True) -> Opt
         typer.echo(f"Executing in container: {command}")
         result = container.exec_run(command)
         if result.exit_code != 0:
-            typer.echo(f"Error: Command execution failed in container: {command}")
-            typer.echo(f"Output: {result.output.decode('utf-8')}")
-            if sys_exit:
-                sys.exit(1)
+            raise ContainerNotFoundError(
+                f"Error: Command execution failed in container: {command}\nOutput: {result.output.decode('utf-8')}")
         return result
-    except Exception:
-        typer.echo(f"Error: Failed to execute command in container: {command}")
-        logger.exception(f"Failed to execute command in container: {command}")
-        sys.exit(1)
+    except Exception as e:
+        raise ContainerNotFoundError(f"Error: Failed to execute command in container: {command}\n{e}")
 
 
 def list_running_containers() -> list[str]:
@@ -147,6 +145,4 @@ def list_databases_in_container(container_name: str) -> list[str]:
                     databases.append(db_name)
         return databases
     else:
-        typer.echo(f"Error: No se pudieron listar las bases de datos en el contenedor '{container_name}'.")
-        logger.error(f"No se pudieron listar las bases de datos en el contenedor '{container_name}'.")
-        return []
+        raise ContainerNotFoundError(f"Error: No se pudieron listar las bases de datos en el contenedor '{container_name}'.")

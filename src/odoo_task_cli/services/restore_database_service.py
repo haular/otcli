@@ -1,10 +1,11 @@
 import glob
 import logging
 import os
-import sys
 
 import typer
-from odoo_task_cli.app_config import config
+
+from odoo_task_cli.config import config
+from odoo_task_cli.domain.exceptions import OdooCLIError
 from odoo_task_cli.infrastructure.odoo_client import check_connection, restore_database, drop_database, \
     get_database_list, restore_database_from_container
 
@@ -45,11 +46,11 @@ def restore_odoo_database() -> None:
             # Check Odoo connection
             if not check_connection():
                 logger.error("Odoo server is not running. Please start the server and try again.")
-                sys.exit(1)
+                raise OdooCLIError("Odoo server is not running. Please start the server and try again.")
             # Get a database list
             db_list = get_database_list()
             # Get the database name from configuration
-            odoo_db_name = config.odoo.db_name
+            odoo_db_name = config.db_name
             # Restore database
             if odoo_db_name in db_list:
                 if typer.confirm(

@@ -5,10 +5,11 @@ import datetime
 import logging
 import os
 import shutil
-import sys
 
 import typer
-from odoo_task_cli.app_config import config
+
+from odoo_task_cli.config import config
+from odoo_task_cli.domain.exceptions import OdooCLIError
 from odoo_task_cli.infrastructure.docker_client import _get_container, _exec_in_container, _copy_file_from_container
 
 logger = logging.getLogger(__name__)
@@ -47,33 +48,39 @@ def _backup_database(output_path: str) -> str:
             f"Error: The generated backup file {final_path} is empty. "
             f"Please verify that the selected database is correct."
         )
-        sys.exit(1)
+        raise OdooCLIError(
+            f"Error: The generated backup file {final_path} is empty. "
+            f"Please verify that the selected database is correct."
+        )
 
     typer.echo(f"Database backup completed: {final_path}")
     return final_path
 
 
 def _copy_filestore(output_path: str) -> str:
-    filestore_path = config.filestore_dir
+    # Construct the source path for the client's specific filestore
+    # It should be config.filestore_dir / config.technical_client_name
+    source_filestore_path = os.path.join(config.filestore_dir, config.technical_client_name)
 
-    typer.echo(f"Copying filestore from {filestore_path}...")
+    typer.echo(f"Copying filestore from {source_filestore_path}...")
 
-    # Create filestore directory
-    filestore_dir = os.path.join(output_path, "filestore")
-    os.makedirs(filestore_dir, exist_ok=True)
+    # Create filestore directory inside the temporary backup directory
+    filestore_dest_path = os.path.join(output_path, "filestore")
+    os.makedirs(filestore_dest_path, exist_ok=True)
 
-    # Copy filestore
-    shutil.copytree(filestore_path, filestore_dir, dirs_exist_ok=True)
+    # Copy filestore content
+    shutil.copytree(source_filestore_path, filestore_dest_path, dirs_exist_ok=True)
 
-    typer.echo(f"Filestore copied to {filestore_dir}")
-    return filestore_dir
+    typer.echo(f"Filestore copied to {filestore_dest_path}")
+    return filestore_dest_path
 
 
-def _compress_backup(backup_name: str, output_path: str) -> str:
+def _compress_backup(backup_name: str, source_path: str, output_dir: str) -> str:
     typer.echo("Compressing backup...")
 
-    # Create zip file
-    zip_file = shutil.make_archive(backup_name, "zip", output_path)
+    # Create zip file in the output_dir
+    zip_file_base = os.path.join(output_dir, backup_name)
+    zip_file = shutil.make_archive(zip_file_base, "zip", source_path)
 
     typer.echo(f"Backup compressed: {zip_file}")
     return zip_file
@@ -102,13 +109,10 @@ def backup_odoo(with_filestore: bool) -> None:
             typer.echo("Created an empty filestore directory as requested.")
 
         # Step 3: Compress backup
-        zip_file = _compress_backup(backup_name, temp_dir)
-
-        # Move zip file to output path
-        shutil.move(zip_file, os.path.join(output_path, os.path.basename(zip_file)))
+        zip_file = _compress_backup(backup_name, temp_dir, output_path)
 
     finally:
         # Clean up temporary directory
         shutil.rmtree(temp_dir)
 
-    typer.echo("Odoo backup process completed successfully.")
+    typer.echo(f"Odoo backup process completed successfully. Backup saved to: {zip_file}")

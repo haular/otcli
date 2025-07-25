@@ -3,10 +3,11 @@ Utility functions for executing commands.
 """
 import logging
 import subprocess
-import sys
 from typing import List, Optional
 
 import typer
+
+from odoo_task_cli.domain.exceptions import OdooCLIError
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +40,8 @@ def run(command: List[str], check: bool = True, text: bool = True,
             stderr=stderr
         )
         return result
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as e:
         logger.exception(f"Command execution failed: {' '.join(command)}")
         if check:
-            sys.exit(1)
+            raise OdooCLIError(f"Command execution failed: {e}")
         raise

@@ -148,3 +148,17 @@ __pycache__/
 backups/
 odoo_cli.egg-info/
 uv.lock
+
+# Python build artifacts
+build/
+dist/
+
+# Test & coverage reports
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Environment variables
+.env
