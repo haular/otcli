@@ -1,0 +1,1 @@
+odoo_task_cli

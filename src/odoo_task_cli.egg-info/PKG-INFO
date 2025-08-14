@@ -1,0 +1,173 @@
+Metadata-Version: 2.4
+Name: odoo_task_cli
+Version: 0.1.0
+Summary: A tool for automating the migration of Odoo databases from one version to another.
+Author-email: Héctor Aular <aular.hector.dev@gmail.com>
+License: MIT
+Project-URL: Homepage, https://github.com/tu_usuario/odoo_cli_tool
+Project-URL: Bug Tracker, https://github.com/tu_usuario/odoo_cli_tool/issues
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Software Development :: Build Tools
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: docker==6.1.3
+Requires-Dist: gitpython==3.1.40
+Requires-Dist: beautifulsoup4==4.12.2
+Requires-Dist: requests==2.31.0
+Requires-Dist: typer>=0.9.0
+Requires-Dist: toml>=0.10.2
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4.3; extra == "dev"
+Dynamic: license-file
+
+# Odoo Task CLI Tool
+
+A tool for automating the migration of Odoo databases from one version to another.
+
+## Overview
+
+This tool automates the complex process of migrating an Odoo database from an old version to a new one, handling
+backups, official upgrades, and restoration with user confirmations.
+
+## Features
+
+- Database backup and restoration
+- Official Odoo upgrade process
+- Filestore copying
+- Post-migration commands execution
+- Environment-specific configuration
+
+## Project Structure
+
+```
+odoo_cli_tool/
+├── .venv/                         # Virtual environment managed by uv
+├── .python-version                # Fixes the Python version
+├── pyproject.toml                 # Project configuration and dependencies
+├── README.md                      # This file
+├── LICENSE                        # MIT License
+├── config/                        # Environment-specific configuration
+│   ├── production.toml            # Production environment configuration
+│   └── test.toml                  # Test environment configuration
+├── src/                           # Source code directory
+│   └── odoo_task_cli/                  # Main package
+│       ├── __init__.py            # Package initialization
+│       ├── __main__.py            # Entry point for CLI execution
+│       ├── core/                  # Business logic
+│       │   ├── __init__.py
+│       │   ├── entities/          # Domain models
+│       │   │   ├── __init__.py
+│       │   │   └── config_models.py # Pydantic models for configuration
+│       │   ├── use_cases/         # Application use cases
+│       │   │   ├── __init__.py
+│       │   │   ├── db.py     # Database backup functionality
+│       │   │   ├── upload_odoo.py   # Odoo upgrade functionality
+│       │   │   ├── restore_db.py    # Database restoration
+│       │   │   ├── copy_filestore.py # Filestore management
+│       │   │   └── run_misc_command.py # Git and other commands execution
+│       │   └── common/            # Common utilities
+│       │       ├── __init__.py
+│       │       └── utils.py       # Common utility functions
+│       └── infra/                 # Infrastructure layer
+│           ├── __init__.py
+│           ├── gateways/          # External interfaces
+│           │   ├── __init__.py
+│           │   ├── docker_manager.py # Docker operations
+│           │   ├── odoo_api.py    # Odoo API operations
+│           │   ├── git_manager.py # Git operations
+│           │   └── command_manager.py # Command execution
+│           └── cli/               # CLI interface
+│               ├── __init__.py
+│               └── app.py         # Typer CLI application
+└── tests/                         # Test directory
+    ├── unit/                      # Unit tests
+    └── integration/               # Integration tests
+```
+
+## Installation
+
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd odoo_cli_tool
+   ```
+
+2. Create a virtual environment and install dependencies using uv:
+   ```bash
+   uv venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   uv pip install -e .
+   ```
+
+   Or using pip:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   pip install -e .
+   ```
+
+3. Create or edit the configuration files in the `config` directory.
+
+## Usage
+
+Run the CLI tool:
+
+```bash
+# If installed with -e
+otcli
+
+# Or using the module directly
+python -m odoo_task_cli
+```
+
+The tool will guide you through the migration process with interactive prompts.
+
+## Configuration
+
+Configuration is done through TOML files in the `~/.odoo_task_cli_config/clientes/` directory. Each client will have its
+own TOML file (e.g., `my_client.toml`).
+
+Each configuration file contains the following sections:
+
+- **General settings**:
+    - `environment`: Indicates if the database environment is 'test' or 'production'.
+    - `technical_client_name`: Technical name of the client. Used as the database name and for the filestore directory.
+    - `url`: URL used to restore the database via a CURL request (e.g., http://localhost:8069).
+    - `upgrade_target`: Defines the target for the database upgrade (e.g., '18.0').
+    - `master_pwd`: Odoo master password for database operations.
+    - `filestore_dir`: Absolute path to the Odoo filestore directory. 'filestore' and the technical client name will be
+      appended (e.g., /mnt/filestore/filestore_my_client).
+    - `code_subscription`: Odoo subscription code for the upgrade service.
+    - `db_container_name`: Name of the Docker database container (PostgreSQL).
+    - `odoo_container_name`: Name of the Odoo instance Docker container.
+    - `repo_path`: Absolute path to the project's Git repository.
+
+- **Commands**:
+    - `commands`: A list of commands to execute after certain operations. Each command can be a Git hash or a shell
+      command.
+
+## Development
+
+Install development dependencies:
+
+```bash
+uv pip install -e ".[dev]"
+```
+
+### Testing
+
+Run tests with pytest:
+
+```bash
+pytest
+```
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

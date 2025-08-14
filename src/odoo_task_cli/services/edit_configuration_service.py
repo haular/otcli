@@ -20,7 +20,10 @@ DESCRIPTIONS = {
     "odoo_container_name": "Nombre del contenedor Docker de la instancia de Odoo.",
     "repo_path": "Ruta absoluta al repositorio Git del proyecto.",
     "technical_client_name": "Nombre técnico del cliente. Se utilizará como nombre de la base de datos y para el directorio del filestore.",
-    "linked_production_client": "Nombre del cliente de producción vinculado (solo para entornos de prueba)."
+    "linked_production_client": "Nombre del cliente de producción vinculado (solo para entornos de prueba).",
+    "remote_backup_enabled": "Habilita backups remotos via SSH (true/false).",
+    "remote_user_host": "Usuario y host SSH para backups remotos (ej. usuario@servidor.com).",
+    "remote_path": "Ruta remota donde guardar los backups (ej. /home/usuario/backups/)."
 }
 
 # --- Orden de los campos para el flujo secuencial ---
@@ -34,6 +37,9 @@ CONFIG_FIELDS_ORDER = [
     "db_container_name",
     "odoo_container_name",
     "repo_path",
+    "remote_backup_enabled",
+    "remote_user_host",
+    "remote_path",
 ]
 
 
@@ -59,6 +65,16 @@ def edit_configuration_interactive() -> None:
         elif key == "filestore_dir":
             base_filestore_path = _prompt_for_value(key, current_value, description)
             config.filestore_dir = os.path.join(base_filestore_path, 'filestore')
+        elif key == "remote_backup_enabled":
+            current_bool_value = config.get(key, False)
+            new_value = typer.confirm(f"{description} ¿Habilitar?", default=current_bool_value)
+            config[key] = new_value
+        elif key in ["remote_user_host", "remote_path"]:
+            if config.get("remote_backup_enabled", False):
+                new_value = _prompt_for_value(key, current_value, description)
+                config[key] = new_value
+            else:
+                typer.echo(f"Saltando {key} (backups remotos deshabilitados)")
         else:
             new_value = _prompt_for_value(key, current_value, description)
             config[key] = new_value

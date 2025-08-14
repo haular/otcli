@@ -1,0 +1,12 @@
+LICENSE
+README.md
+pyproject.toml
+src/odoo_task_cli/__init__.py
+src/odoo_task_cli/__main__.py
+src/odoo_task_cli/config.py
+src/odoo_task_cli.egg-info/PKG-INFO
+src/odoo_task_cli.egg-info/SOURCES.txt
+src/odoo_task_cli.egg-info/dependency_links.txt
+src/odoo_task_cli.egg-info/entry_points.txt
+src/odoo_task_cli.egg-info/requires.txt
+src/odoo_task_cli.egg-info/top_level.txt

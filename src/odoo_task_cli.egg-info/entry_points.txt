@@ -1,0 +1,2 @@
+[console_scripts]
+otcli = odoo_task_cli.__main__:main
