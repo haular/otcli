@@ -29,6 +29,9 @@ DESCRIPTIONS = {
 # --- Orden de los campos para el flujo secuencial ---
 CONFIG_FIELDS_ORDER = [
     "technical_client_name",
+    "remote_backup_enabled",
+    "remote_user_host",
+    "remote_path",
     "url",
     "upgrade_target",
     "master_pwd",
@@ -37,9 +40,6 @@ CONFIG_FIELDS_ORDER = [
     "db_container_name",
     "odoo_container_name",
     "repo_path",
-    "remote_backup_enabled",
-    "remote_user_host",
-    "remote_path",
 ]
 
 
@@ -55,16 +55,6 @@ def edit_configuration_interactive() -> None:
             config.technical_client_name = new_value
             config.db_name = new_value  # Asignar db_name automáticamente
             config.client_name = new_value
-        elif key == "db_container_name":
-            db_container_name = _handle_docker_container_selection(current_value, description)
-            if db_container_name is not None:
-                config.db_container_name = db_container_name
-            else:
-                typer.echo("Selección de contenedor Docker cancelada.")
-                continue  # Skip to next field if selection was cancelled
-        elif key == "filestore_dir":
-            base_filestore_path = _prompt_for_value(key, current_value, description)
-            config.filestore_dir = os.path.join(base_filestore_path, 'filestore')
         elif key == "remote_backup_enabled":
             current_bool_value = config.get(key, False)
             new_value = typer.confirm(f"{description} ¿Habilitar?", default=current_bool_value)
@@ -75,6 +65,24 @@ def edit_configuration_interactive() -> None:
                 config[key] = new_value
             else:
                 typer.echo(f"Saltando {key} (backups remotos deshabilitados)")
+                config[key] = ""  # Valor vacío para campos no aplicables
+        elif key in ["url", "upgrade_target", "master_pwd", "filestore_dir", "code_subscription", "db_container_name", "odoo_container_name", "repo_path"]:
+            if config.get("remote_backup_enabled", False):
+                typer.echo(f"Saltando {key} (cliente remoto, no necesario)")
+                config[key] = ""  # Valor vacío para cliente remoto
+            elif key == "db_container_name":
+                db_container_name = _handle_docker_container_selection(current_value, description)
+                if db_container_name is not None:
+                    config.db_container_name = db_container_name
+                else:
+                    typer.echo("Selección de contenedor Docker cancelada.")
+                    continue
+            elif key == "filestore_dir":
+                base_filestore_path = _prompt_for_value(key, current_value, description)
+                config.filestore_dir = os.path.join(base_filestore_path, 'filestore')
+            else:
+                new_value = _prompt_for_value(key, current_value, description)
+                config[key] = new_value
         else:
             new_value = _prompt_for_value(key, current_value, description)
             config[key] = new_value
