@@ -84,9 +84,16 @@ def interactive_command():
             backup_odoo_instance(with_filestore=with_filestore)
             typer.echo("Operación de Backup completada.")
         elif choice == 2:
+            if config.get("remote_backup_enabled", False):
+                typer.echo("❌ Restore no disponible para clientes remotos.")
+                continue
             restore_odoo_database()
             typer.echo("Operación de Restauración completada.")
         elif choice == 3:
+            if config.get("remote_backup_enabled", False):
+                typer.echo("❌ Upgrade no disponible para clientes remotos.")
+                continue
+            
             backup_dir = config.client_backup_dir
             zip_files = glob.glob(os.path.join(backup_dir, "*.zip"))
 
