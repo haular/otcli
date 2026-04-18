@@ -9,8 +9,8 @@ import docker
 import typer
 from docker.models.containers import Container
 
-from odoo_task_cli.domain.exceptions import ContainerNotFoundError
-from odoo_task_cli.domain.services import run
+from otcli.domain.exceptions import ContainerNotFoundError
+from otcli.domain.services import run
 
 logger = logging.getLogger(__name__)
 

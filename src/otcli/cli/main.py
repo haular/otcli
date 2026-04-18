@@ -4,12 +4,12 @@ import os
 
 import typer
 
-from odoo_task_cli.config import config, initialize_client_config
-from odoo_task_cli.domain.exceptions import OdooCLIError
-from odoo_task_cli.services.backup_odoo_service import backup_odoo_instance
-from odoo_task_cli.services.edit_configuration_service import edit_configuration_interactive
-from odoo_task_cli.services.restore_database_service import restore_odoo_database
-from odoo_task_cli.services.upgrade_database_service import upgrade_database
+from otcli.config import config, initialize_client_config
+from otcli.domain.exceptions import OdooCLIError
+from otcli.services.backup_odoo_service import backup_odoo_instance
+from otcli.services.edit_configuration_service import edit_configuration_interactive
+from otcli.services.restore_database_service import restore_odoo_database
+from otcli.services.upgrade_database_service import upgrade_database
 
 logger = logging.getLogger(__name__)
 

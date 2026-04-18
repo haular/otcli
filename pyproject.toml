@@ -3,9 +3,9 @@ requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "odoo_task_cli"
+name = "otcli"
 version = "0.1.0"
-description = "A tool for automating the migration of Odoo databases from one version to another."
+description = "Odoo Tasks CLI: automate backup, restore and upgrade of Odoo databases."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -42,11 +42,10 @@ dev = [
 "Bug Tracker" = "https://github.com/tu_usuario/odoo_cli_tool/issues"
 
 [project.scripts]
-otcli = "odoo_task_cli.__main__:main"
+otcli = "otcli.__main__:main"
 
-[tool.setuptools]
-packages = ["odoo_task_cli"]
-package-dir = { "" = "src" }
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["."]

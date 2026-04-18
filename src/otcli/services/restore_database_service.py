@@ -6,9 +6,9 @@ import os
 
 import typer
 
-from odoo_task_cli.config import config
-from odoo_task_cli.domain.exceptions import OdooCLIError
-from odoo_task_cli.infrastructure.odoo_client import (
+from otcli.config import config
+from otcli.domain.exceptions import OdooCLIError
+from otcli.infrastructure.odoo_client import (
     check_connection,
     drop_database,
     get_database_list,

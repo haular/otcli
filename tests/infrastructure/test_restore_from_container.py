@@ -16,8 +16,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from odoo_task_cli.domain.exceptions import OdooCLIError
-from odoo_task_cli.infrastructure import odoo_client
+from otcli.domain.exceptions import OdooCLIError
+from otcli.infrastructure import odoo_client
 
 
 def _make_valid_backup(path: Path, filestore_files: int = 2) -> Path:

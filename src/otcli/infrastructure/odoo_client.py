@@ -9,10 +9,10 @@ import zipfile
 
 import typer
 
-from odoo_task_cli.config import config
-from odoo_task_cli.domain.exceptions import OdooCLIError
-from odoo_task_cli.domain.services import run
-from odoo_task_cli.infrastructure.docker_client import _copy_file_to_container, _exec_in_container, _get_container
+from otcli.config import config
+from otcli.domain.exceptions import OdooCLIError
+from otcli.domain.services import run
+from otcli.infrastructure.docker_client import _copy_file_to_container, _exec_in_container, _get_container
 
 logger = logging.getLogger(__name__)
 

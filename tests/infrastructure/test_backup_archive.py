@@ -6,7 +6,7 @@ import json
 import zipfile
 from pathlib import Path
 
-from odoo_task_cli.infrastructure import db_client
+from otcli.infrastructure import db_client
 
 
 def _write(p: Path, content: bytes = b'x') -> Path:

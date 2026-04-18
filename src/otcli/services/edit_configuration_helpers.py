@@ -1,6 +1,6 @@
 import typer
 
-from odoo_task_cli.infrastructure.docker_client import list_running_containers
+from otcli.infrastructure.docker_client import list_running_containers
 
 
 def _prompt_for_value(

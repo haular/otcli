@@ -7,7 +7,7 @@ import os
 
 import typer
 
-from odoo_task_cli.config import config
+from otcli.config import config
 
 logger = logging.getLogger(__name__)
 DIRECTORY_PATH = config.directory_path

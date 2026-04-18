@@ -2,9 +2,9 @@ import logging
 
 import typer
 
-from odoo_task_cli.config import config
-from odoo_task_cli.domain.utils import setup_working_directory
-from odoo_task_cli.infrastructure.db_client import backup_odoo
+from otcli.config import config
+from otcli.domain.utils import setup_working_directory
+from otcli.infrastructure.db_client import backup_odoo
 
 logger = logging.getLogger(__name__)
 

@@ -3,9 +3,9 @@ import os
 
 import typer
 
-from odoo_task_cli.config import config
-from odoo_task_cli.infrastructure.config_manager import save_client_config
-from odoo_task_cli.services.edit_configuration_helpers import _handle_docker_container_selection, _prompt_for_value
+from otcli.config import config
+from otcli.infrastructure.config_manager import save_client_config
+from otcli.services.edit_configuration_helpers import _handle_docker_container_selection, _prompt_for_value
 
 logger = logging.getLogger(__name__)
 

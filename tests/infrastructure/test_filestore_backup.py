@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from odoo_task_cli.infrastructure import db_client
+from otcli.infrastructure import db_client
 
 
 def _write(p: Path, content: bytes = b'x') -> Path:
@@ -71,7 +71,7 @@ class TestCopyFilestoreRobustness:
     ) -> None:
         """If many files end up missing in destination, _copy_filestore must
         raise rather than silently produce an incomplete backup."""
-        from odoo_task_cli.domain.exceptions import OdooCLIError
+        from otcli.domain.exceptions import OdooCLIError
 
         real_copytree = db_client.shutil.copytree
 
@@ -91,7 +91,7 @@ class TestCopyFilestoreRobustness:
             db_client._copy_filestore(str(dest_root))
 
     def test_missing_source_raises(self, tmp_path: Path, fresh_config) -> None:
-        from odoo_task_cli.domain.exceptions import OdooCLIError
+        from otcli.domain.exceptions import OdooCLIError
 
         fresh_config.update(
             {

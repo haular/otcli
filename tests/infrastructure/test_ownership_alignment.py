@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 import pytest
 
-from odoo_task_cli.infrastructure import odoo_client
+from otcli.infrastructure import odoo_client
 
 
 class TestAlignOwnership:
