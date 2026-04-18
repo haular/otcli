@@ -4,6 +4,7 @@ import os
 
 import typer
 
+from otcli import logging_setup
 from otcli.bootstrap import config, initialize_client_config
 from otcli.domain.exceptions import OdooCLIError
 from otcli.services.backup import backup_odoo_instance
@@ -17,8 +18,20 @@ app = typer.Typer()
 
 
 @app.callback()
-def main(ctx: typer.Context):
+def main(
+    ctx: typer.Context,
+    verbose: bool = typer.Option(
+        False,
+        '--verbose',
+        '-v',
+        help='Enable debug logging (very noisy).',
+    ),
+):
     """Odoo CLI Tool for database migration and management."""
+    # Configure logging first so subsequent steps (including the client
+    # config prompt) can emit structured diagnostics.
+    logging_setup.configure(verbose=verbose)
+
     # Centralized client configuration initialization.
     # This runs once before any command is executed.
     if not initialize_client_config(edit_configuration_interactive):
