@@ -3,7 +3,12 @@ import typer
 from odoo_task_cli.infrastructure.docker_client import list_running_containers
 
 
-def _prompt_for_value(key: str, current_value: str, description: str, prompt_message: str = None) -> str:
+def _prompt_for_value(
+    key: str,
+    current_value: str,
+    description: str,
+    prompt_message: str | None = None,
+) -> str:
     typer.echo(f'\nDescripción: {description}')
 
     if prompt_message is None:
@@ -14,8 +19,7 @@ def _prompt_for_value(key: str, current_value: str, description: str, prompt_mes
         if not typer.confirm('¿Desea reemplazarlo?', default=False):
             return current_value
 
-    new_value = typer.prompt(prompt_message, default=current_value if current_value else '')
-    return new_value
+    return typer.prompt(prompt_message, default=current_value if current_value else '')
 
 
 def _handle_docker_container_selection(current_value: str, description: str) -> str | None:

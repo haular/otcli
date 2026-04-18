@@ -33,10 +33,9 @@ def run(
     """
     try:
         typer.echo(f'Executing command: {" ".join(command)}')
-        result = subprocess.run(command, check=check, text=text, stdout=stdout, stderr=stderr)
-        return result
-    except subprocess.CalledProcessError as e:
-        logger.exception(f'Command execution failed: {" ".join(command)}')
+        return subprocess.run(command, check=check, text=text, stdout=stdout, stderr=stderr)
+    except subprocess.CalledProcessError as err:
+        logger.exception('Command execution failed: %s', ' '.join(command))
         if check:
-            raise OdooCLIError(f'Command execution failed: {e}')
+            raise OdooCLIError(f'Command execution failed: {err}') from err
         raise

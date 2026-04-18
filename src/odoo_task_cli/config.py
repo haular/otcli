@@ -4,6 +4,7 @@ Loads configuration from TOML files.
 """
 
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 import typer
@@ -31,8 +32,6 @@ config = DotDict()
 config.directory_path = DIRECTORY_PATH
 config.clients_config_dir = str(clients_config_dir)
 config.client_backup_dir = str(backups_dir)
-
-from collections.abc import Callable
 
 
 def initialize_client_config(create_new_config_callback: Callable[[], None]) -> bool:

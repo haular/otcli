@@ -14,12 +14,17 @@ DESCRIPTIONS = {
     'url': 'URL utilizada para restaurar la base de datos a través de una petición CURL (ej. http://localhost:8069).',
     'upgrade_target': "Define el objetivo para la actualización de la base de datos (ej. '18.0').",
     'master_pwd': 'Contraseña maestra de Odoo para operaciones de base de datos.',
-    'filestore_dir': "Ruta base para los filestores. Se le anexará '/filestore/' y el nombre técnico del cliente (ej. si la ruta es /mnt/odoo, el resultado será /mnt/odoo/filestore/mi_cliente).",
+    'filestore_dir': (
+        "Ruta base para los filestores. Se le anexará '/filestore/' y el nombre técnico del cliente "
+        '(ej. si la ruta es /mnt/odoo, el resultado será /mnt/odoo/filestore/mi_cliente).'
+    ),
     'code_subscription': 'Código de suscripción de Odoo para el servicio de actualización.',
     'db_container_name': 'Nombre del contenedor Docker de la base de datos (PostgreSQL).',
     'odoo_container_name': 'Nombre del contenedor Docker de la instancia de Odoo.',
     'repo_path': 'Ruta absoluta al repositorio Git del proyecto.',
-    'technical_client_name': 'Nombre técnico del cliente. Se utilizará como nombre de la base de datos y para el directorio del filestore.',
+    'technical_client_name': (
+        'Nombre técnico del cliente. Se utilizará como nombre de la base de datos y para el directorio del filestore.'
+    ),
     'linked_production_client': 'Nombre del cliente de producción vinculado (solo para entornos de prueba).',
 }
 

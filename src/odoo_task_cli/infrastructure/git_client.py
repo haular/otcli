@@ -1,5 +1,7 @@
-"""
-Utility functions for Git operations.
+"""Utility functions for Git operations.
+
+Currently unused by the CLI commands but kept for future upgrade tooling that
+needs to check out a specific commit before running migrations.
 """
 
 import logging
@@ -9,56 +11,46 @@ import typer
 from git import GitCommandError, Repo
 
 from odoo_task_cli.config import config
-from odoo_task_cli.domain.exceptions import GitCheckoutError
+from odoo_task_cli.domain.exceptions import GitCheckoutError, OdooCLIError
 
 logger = logging.getLogger(__name__)
 
 
 def _get_repo(repo_path: str) -> Repo:
-    """
-    Get a Git repository instance.
-
-    Args:
-        repo_path: Path to the Git repository
-
-    Returns:
-        Repo instance
+    """Get a :class:`git.Repo` instance for ``repo_path``.
 
     Raises:
-        SystemExit: If the repository doesn't exist
+        OdooCLIError: If the path does not exist or is not a valid git repo.
     """
     if not os.path.exists(repo_path):
-        typer.echo(f"Error: Git repository path '{repo_path}' does not exist.")
-        sys.exit(1)
+        raise OdooCLIError(f"Git repository path '{repo_path}' does not exist.")
 
     try:
         return Repo(repo_path)
-    except Exception:
+    except Exception as err:
         typer.echo(f"Error: Failed to open Git repository at '{repo_path}'")
-        logger.exception(f"Failed to open Git repository at '{repo_path}'")
-        sys.exit(1)
+        logger.exception("Failed to open Git repository at '%s'", repo_path)
+        raise OdooCLIError(f"Failed to open Git repository at '{repo_path}': {err}") from err
 
 
 def _checkout_commit(commit_hash: str) -> None:
-    """
-    Checkout a specific commit in a Git repository.
-
-    Args:
-        repo: Repo instance
-        commit_hash: Commit hash to checkout
+    """Check out ``commit_hash`` in the repository configured as
+    ``config.repo_path``.
 
     Raises:
-        SystemExit: If the checkout operation fails
+        OdooCLIError: If the repository cannot be opened.
+        GitCheckoutError: If the checkout itself fails.
     """
+    repo_path = config.repo_path
     try:
-        repo = Repo(config.git)
-    except Exception as e:
-        typer.echo(f'Error: Failed to open Git repository at {config.git}: {e}')
-        logger.error(f'Failed to open Git repository at {config.git}: {e}')
-        raise FileNotFoundError(f'Git repository at {config.git} does not exist')
+        repo = Repo(repo_path)
+    except Exception as err:
+        typer.echo(f'Error: Failed to open Git repository at {repo_path}: {err}')
+        logger.error('Failed to open Git repository at %s: %s', repo_path, err)
+        raise OdooCLIError(f'Git repository at {repo_path} does not exist') from err
 
     try:
         typer.echo(f'Checking out commit: {commit_hash}')
         repo.git.checkout(commit_hash)
-    except GitCommandError as e:
-        raise GitCheckoutError(f"Error: Failed to checkout commit '{commit_hash}': {e}")
+    except GitCommandError as err:
+        raise GitCheckoutError(f"Error: Failed to checkout commit '{commit_hash}': {err}") from err

@@ -28,7 +28,7 @@ def _make_valid_backup(path: Path, filestore_files: int = 2) -> Path:
             zf.writestr(f'filestore/aa/file_{i}.bin', f'payload-{i}')
         zf.writestr(
             'manifest.json',
-            '{"filestore_file_count": %d, "has_dump": true, "created_at": "x"}' % filestore_files,
+            f'{{"filestore_file_count": {filestore_files}, "has_dump": true, "created_at": "x"}}',
         )
     return path
 

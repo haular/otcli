@@ -119,8 +119,8 @@ def get_database_list() -> list[str]:
         if len(lines) > 1:
             return [line.strip() for line in lines[1:] if line.strip()]
         return []
-    except Exception as e:
-        raise OdooCLIError(f'Failed to get database list: {e}')
+    except Exception as err:
+        raise OdooCLIError(f'Failed to get database list: {err}') from err
 
 
 def download_upgrade_script() -> str:
@@ -197,8 +197,8 @@ def check_odoo_container_connection() -> bool:
         ]
         result = run(command, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return result.returncode == 0
-    except Exception as e:
-        raise OdooCLIError(f'Failed to check Odoo container connection: {e}')
+    except Exception as err:
+        raise OdooCLIError(f'Failed to check Odoo container connection: {err}') from err
 
 
 def _validate_backup_zip(backup_file: str) -> None:
@@ -359,23 +359,44 @@ def restore_database_from_container(backup_file: str) -> None:
 
 
 def get_database_creation_date(db_name: str) -> str:
-    """
-    Get the creation date of a database.
+    """Get the creation date of a database.
 
-    Args:
-        db_name: Name of the database
-
-    Returns:
-        Creation date of the database
+    Uses an argv list (no ``shell=True``) and parameterises the database name
+    via ``psql``'s ``-v`` flag to avoid SQL injection.
     """
-    p = subprocess.Popen(
-        f"PGPASSWORD=odoo psql -h localhost -U odoo -d {db_name} -t -c \"SELECT pg_database.datname, (pg_stat_file('base/'||oid ||'/PG_VERSION')).modification FROM pg_database WHERE datname = '{db_name}';\"",
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+    query = (
+        'SELECT pg_database.datname, '
+        "(pg_stat_file('base/'||oid ||'/PG_VERSION')).modification "
+        "FROM pg_database WHERE datname = :'dbname';"
     )
-    output, err = p.communicate()
-    if p.returncode != 0:
-        logger.error(f'Error getting database creation date: {err.decode("utf-8")}')
+    command = [
+        'psql',
+        '-h',
+        'localhost',
+        '-U',
+        'odoo',
+        '-d',
+        db_name,
+        '-t',
+        '-v',
+        f'dbname={db_name}',
+        '-c',
+        query,
+    ]
+    env = {'PGPASSWORD': 'odoo'}
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**os.environ, **env},
+        )
+    except FileNotFoundError as err:
+        logger.error('psql is not installed on the host: %s', err)
         return ''
-    return output.decode('utf-8').strip()
+
+    if result.returncode != 0:
+        logger.error('Error getting database creation date: %s', result.stderr)
+        return ''
+    return result.stdout.strip()
