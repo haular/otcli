@@ -72,29 +72,60 @@ def _copy_file_to_container(container_name: str, src_path: str, dest_path: str) 
     run(command)
 
 
-def _exec_in_container(container: Container, command: str, sys_exit=True) -> Optional[tuple]:
-    """
-    Execute a command in a Docker container.
+def _exec_in_container(
+    container: Container,
+    command: str,
+    check: bool = True,
+    **_legacy: object,
+) -> Optional[object]:
+    """Execute a command inside a Docker container.
 
     Args:
-        container: Container instance
-        command: Command to execute
+        container: Container instance.
+        command: Command string to execute.
+        check: When ``True`` (default), raise :class:`ContainerNotFoundError`
+            on a non-zero exit code. When ``False``, the non-zero result is
+            returned so the caller can decide what to do (useful for best-effort
+            commands such as ``dropdb`` against a possibly-missing database).
+
+    Additional keyword arguments are accepted for backwards compatibility
+    (the parameter used to be called ``sys_exit``) but ignored.
 
     Returns:
-        Tuple of (exit_code, output) if successful, None otherwise
+        The ``exec_run`` result object. ``None`` is never returned on success.
 
     Raises:
-        SystemExit: If the command execution fails
+        ContainerNotFoundError: If ``check`` is True and the command exits
+            with a non-zero status, or if the Docker API raises an error.
     """
+    # Backwards compatibility: some callers may still pass ``sys_exit``.
+    if "sys_exit" in _legacy:
+        check = bool(_legacy["sys_exit"])
+
+    typer.echo(f"Executing in container: {command}")
     try:
-        typer.echo(f"Executing in container: {command}")
         result = container.exec_run(command)
-        if result.exit_code != 0:
+    except ContainerNotFoundError:
+        raise
+    except Exception as e:  # pragma: no cover - defensive
+        raise ContainerNotFoundError(
+            f"Error: Failed to execute command in container: {command}\n{e}"
+        ) from e
+
+    if result.exit_code != 0:
+        output = result.output.decode("utf-8", errors="replace") if result.output else ""
+        if check:
             raise ContainerNotFoundError(
-                f"Error: Command execution failed in container: {command}\nOutput: {result.output.decode('utf-8')}")
-        return result
-    except Exception as e:
-        raise ContainerNotFoundError(f"Error: Failed to execute command in container: {command}\n{e}")
+                f"Error: Command execution failed in container: {command}\n"
+                f"Output: {output}"
+            )
+        logger.warning(
+            "Non-zero exit (%s) from container command (ignored): %s\n%s",
+            result.exit_code,
+            command,
+            output,
+        )
+    return result
 
 
 def list_running_containers() -> list[str]:
