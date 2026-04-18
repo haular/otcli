@@ -5,10 +5,9 @@ home) and a global mutable ``config`` singleton. We isolate those per-test by
 redirecting ``HOME`` to a temporary directory and by resetting the ``config``
 object before each test.
 """
+
 from __future__ import annotations
 
-import os
-import sys
 from pathlib import Path
 
 import pytest
@@ -21,7 +20,7 @@ def _isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     Avoids polluting the user's home during tests and ensures config.py's
     module-level ``os.makedirs`` writes into tmp.
     """
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv('HOME', str(tmp_path))
     return tmp_path
 
 

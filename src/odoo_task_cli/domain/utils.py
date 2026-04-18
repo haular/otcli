@@ -1,6 +1,7 @@
 """
 Common utility functions for the Odoo CLI tool.
 """
+
 import logging
 import os
 
@@ -16,11 +17,12 @@ def setup_working_directory() -> None:
     directory_path = DIRECTORY_PATH
     # Create a directory even if it doesn't exist
     if not os.path.exists(directory_path):
-        typer.echo(f"Warning: Directory {directory_path} does not exist. Creating directory...")
+        typer.echo(f'Warning: Directory {directory_path} does not exist. Creating directory...')
         os.makedirs(directory_path)
     # Change working directory
     os.chdir(directory_path)
-    typer.echo(f"Working directory set to {directory_path}")
+    typer.echo(f'Working directory set to {directory_path}')
+
 
 # def execute_commands(commands: Optional[List[Dict[str, Any]]] = None) -> None:
 #     """

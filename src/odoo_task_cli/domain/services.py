@@ -1,9 +1,9 @@
 """
 Utility functions for executing commands.
 """
+
 import logging
 import subprocess
-from typing import List, Optional
 
 import typer
 
@@ -12,8 +12,9 @@ from odoo_task_cli.domain.exceptions import OdooCLIError
 logger = logging.getLogger(__name__)
 
 
-def run(command: List[str], check: bool = True, text: bool = True,
-        stdout: Optional[int] = None, stderr: Optional[int] = None) -> subprocess.CompletedProcess:
+def run(
+    command: list[str], check: bool = True, text: bool = True, stdout: int | None = None, stderr: int | None = None
+) -> subprocess.CompletedProcess:
     """
     Execute a command and return the result.
 
@@ -31,17 +32,11 @@ def run(command: List[str], check: bool = True, text: bool = True,
         SystemExit: If the command fails and check is True
     """
     try:
-        typer.echo(f"Executing command: {' '.join(command)}")
-        result = subprocess.run(
-            command,
-            check=check,
-            text=text,
-            stdout=stdout,
-            stderr=stderr
-        )
+        typer.echo(f'Executing command: {" ".join(command)}')
+        result = subprocess.run(command, check=check, text=text, stdout=stdout, stderr=stderr)
         return result
     except subprocess.CalledProcessError as e:
-        logger.exception(f"Command execution failed: {' '.join(command)}")
+        logger.exception(f'Command execution failed: {" ".join(command)}')
         if check:
-            raise OdooCLIError(f"Command execution failed: {e}")
+            raise OdooCLIError(f'Command execution failed: {e}')
         raise

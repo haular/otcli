@@ -1,11 +1,12 @@
 """
 Utility functions for Git operations.
 """
+
 import logging
 import os
 
 import typer
-from git import Repo, GitCommandError
+from git import GitCommandError, Repo
 
 from odoo_task_cli.config import config
 from odoo_task_cli.domain.exceptions import GitCheckoutError
@@ -52,12 +53,12 @@ def _checkout_commit(commit_hash: str) -> None:
     try:
         repo = Repo(config.git)
     except Exception as e:
-        typer.echo(f"Error: Failed to open Git repository at {config.git}: {e}")
-        logger.error(f"Failed to open Git repository at {config.git}: {e}")
-        raise FileNotFoundError(f"Git repository at {config.git} does not exist")
+        typer.echo(f'Error: Failed to open Git repository at {config.git}: {e}')
+        logger.error(f'Failed to open Git repository at {config.git}: {e}')
+        raise FileNotFoundError(f'Git repository at {config.git} does not exist')
 
     try:
-        typer.echo(f"Checking out commit: {commit_hash}")
+        typer.echo(f'Checking out commit: {commit_hash}')
         repo.git.checkout(commit_hash)
     except GitCommandError as e:
         raise GitCheckoutError(f"Error: Failed to checkout commit '{commit_hash}': {e}")
