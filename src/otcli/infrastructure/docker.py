@@ -10,7 +10,7 @@ import typer
 from docker.models.containers import Container
 
 from otcli.domain.exceptions import ContainerNotFoundError
-from otcli.domain.services import run
+from otcli.domain.shell import run
 
 logger = logging.getLogger(__name__)
 

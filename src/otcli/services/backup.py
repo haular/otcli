@@ -2,9 +2,9 @@ import logging
 
 import typer
 
-from otcli.config import config
-from otcli.domain.utils import setup_working_directory
-from otcli.infrastructure.db_client import backup_odoo
+from otcli.bootstrap import config
+from otcli.domain.workdir import setup_working_directory
+from otcli.infrastructure.backup import backup_odoo
 
 logger = logging.getLogger(__name__)
 

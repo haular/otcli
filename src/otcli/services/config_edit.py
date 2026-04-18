@@ -3,9 +3,9 @@ import os
 
 import typer
 
-from otcli.config import config
-from otcli.infrastructure.config_manager import save_client_config
-from otcli.services.edit_configuration_helpers import _handle_docker_container_selection, _prompt_for_value
+from otcli.bootstrap import config
+from otcli.infrastructure.client_config import save_client_config
+from otcli.services._prompts import _handle_docker_container_selection, _prompt_for_value
 
 logger = logging.getLogger(__name__)
 

@@ -2,7 +2,7 @@ import logging
 
 import typer
 
-from otcli.infrastructure.odoo_client import check_existing_upgrade, run_upgrade
+from otcli.infrastructure.upgrade import check_existing_upgrade, run_upgrade
 
 logger = logging.getLogger(__name__)
 

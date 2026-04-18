@@ -12,9 +12,9 @@ import zipfile
 
 import typer
 
-from otcli.config import config
+from otcli.bootstrap import config
 from otcli.domain.exceptions import OdooCLIError
-from otcli.infrastructure.docker_client import (
+from otcli.infrastructure.docker import (
     _copy_file_from_container,
     _exec_in_container,
     _get_container,

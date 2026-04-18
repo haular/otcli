@@ -9,8 +9,8 @@ from pathlib import Path
 
 import typer
 
-from otcli.domain.models import DotDict
-from otcli.infrastructure.config_manager import load_client_config, select_client
+from otcli.domain.dotdict import DotDict
+from otcli.infrastructure.client_config import load_client_config, select_client
 
 # Determine the base directory of the project
 DIRECTORY_PATH = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

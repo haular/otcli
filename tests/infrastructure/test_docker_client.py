@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from otcli.domain.exceptions import ContainerNotFoundError
-from otcli.infrastructure.docker_client import _exec_in_container
+from otcli.infrastructure.docker import _exec_in_container
 
 
 def _fake_container(exit_code: int, output: bytes = b'') -> MagicMock:

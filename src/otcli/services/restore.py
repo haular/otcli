@@ -6,15 +6,15 @@ import os
 
 import typer
 
-from otcli.config import config
+from otcli.bootstrap import config
 from otcli.domain.exceptions import OdooCLIError
-from otcli.infrastructure.odoo_client import (
+from otcli.infrastructure.odoo_http import (
     check_connection,
     drop_database,
     get_database_list,
     restore_database,
-    restore_database_from_container,
 )
+from otcli.infrastructure.restore import restore_database_from_container
 
 logger = logging.getLogger(__name__)
 

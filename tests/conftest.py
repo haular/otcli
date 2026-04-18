@@ -33,7 +33,7 @@ def fresh_config(monkeypatch: pytest.MonkeyPatch):
     mutate the returned object.
     """
     # Import lazily so the autouse ``_isolated_home`` takes effect first.
-    from otcli.config import config
+    from otcli.bootstrap import config
 
     # Snapshot and restore.
     original = dict(config)

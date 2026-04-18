@@ -10,7 +10,7 @@ import os
 import typer
 from git import GitCommandError, Repo
 
-from otcli.config import config
+from otcli.bootstrap import config
 from otcli.domain.exceptions import GitCheckoutError, OdooCLIError
 
 logger = logging.getLogger(__name__)

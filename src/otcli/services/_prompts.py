@@ -1,6 +1,6 @@
 import typer
 
-from otcli.infrastructure.docker_client import list_running_containers
+from otcli.infrastructure.docker import list_running_containers
 
 
 def _prompt_for_value(

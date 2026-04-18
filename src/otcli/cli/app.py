@@ -4,12 +4,12 @@ import os
 
 import typer
 
-from otcli.config import config, initialize_client_config
+from otcli.bootstrap import config, initialize_client_config
 from otcli.domain.exceptions import OdooCLIError
-from otcli.services.backup_odoo_service import backup_odoo_instance
-from otcli.services.edit_configuration_service import edit_configuration_interactive
-from otcli.services.restore_database_service import restore_odoo_database
-from otcli.services.upgrade_database_service import upgrade_database
+from otcli.services.backup import backup_odoo_instance
+from otcli.services.config_edit import edit_configuration_interactive
+from otcli.services.restore import restore_odoo_database
+from otcli.services.upgrade import upgrade_database
 
 logger = logging.getLogger(__name__)
 
