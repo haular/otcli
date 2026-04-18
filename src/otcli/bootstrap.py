@@ -9,15 +9,15 @@ from pathlib import Path
 
 import typer
 
-from odoo_task_cli.domain.models import DotDict
-from odoo_task_cli.infrastructure.config_manager import load_client_config, select_client
+from otcli.domain.dotdict import DotDict
+from otcli.infrastructure.client_config import load_client_config, select_client
 
 # Determine the base directory of the project
 DIRECTORY_PATH = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Setup user-specific configuration directory in the home folder
 user_home_dir = Path.home()
-app_data_dir = user_home_dir / '.odoo_task_cli_config'
+app_data_dir = user_home_dir / '.otcli_config'
 clients_config_dir = app_data_dir / 'clientes'
 backups_dir = app_data_dir / 'backups'
 

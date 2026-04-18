@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from odoo_task_cli.infrastructure import db_client
+from otcli.infrastructure import backup
 
 
 def _write(p: Path, content: bytes = b'x') -> Path:
@@ -49,7 +49,7 @@ class TestCopyFilestoreRobustness:
     def test_copies_all_regular_files(self, tmp_path: Path, configured_client: dict) -> None:
         dest_root = tmp_path / 'out'
         dest_root.mkdir()
-        db_client._copy_filestore(str(dest_root))
+        backup._copy_filestore(str(dest_root))
         copied = {p.relative_to(dest_root / 'filestore') for p in (dest_root / 'filestore').rglob('*') if p.is_file()}
         expected = {p.relative_to(configured_client['src']) for p in configured_client['src'].rglob('*') if p.is_file()}
         assert copied == expected
@@ -61,7 +61,7 @@ class TestCopyFilestoreRobustness:
 
         dest_root = tmp_path / 'out'
         dest_root.mkdir()
-        db_client._copy_filestore(str(dest_root))
+        backup._copy_filestore(str(dest_root))
 
         # Regular files still copied.
         assert (dest_root / 'filestore' / 'aa' / 'file_0.bin').exists()
@@ -71,9 +71,9 @@ class TestCopyFilestoreRobustness:
     ) -> None:
         """If many files end up missing in destination, _copy_filestore must
         raise rather than silently produce an incomplete backup."""
-        from odoo_task_cli.domain.exceptions import OdooCLIError
+        from otcli.domain.exceptions import OdooCLIError
 
-        real_copytree = db_client.shutil.copytree
+        real_copytree = backup.shutil.copytree
 
         def broken_copytree(src, dst, *args, **kwargs):
             # Copy into dst but then wipe most files to simulate silent loss.
@@ -83,15 +83,15 @@ class TestCopyFilestoreRobustness:
                     p.unlink()
             return result
 
-        monkeypatch.setattr(db_client.shutil, 'copytree', broken_copytree)
+        monkeypatch.setattr(backup.shutil, 'copytree', broken_copytree)
 
         dest_root = tmp_path / 'out'
         dest_root.mkdir()
         with pytest.raises(OdooCLIError):
-            db_client._copy_filestore(str(dest_root))
+            backup._copy_filestore(str(dest_root))
 
     def test_missing_source_raises(self, tmp_path: Path, fresh_config) -> None:
-        from odoo_task_cli.domain.exceptions import OdooCLIError
+        from otcli.domain.exceptions import OdooCLIError
 
         fresh_config.update(
             {
@@ -103,4 +103,4 @@ class TestCopyFilestoreRobustness:
         dest = tmp_path / 'out'
         dest.mkdir()
         with pytest.raises(OdooCLIError):
-            db_client._copy_filestore(str(dest))
+            backup._copy_filestore(str(dest))

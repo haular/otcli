@@ -7,7 +7,7 @@ import subprocess
 
 import typer
 
-from odoo_task_cli.domain.exceptions import OdooCLIError
+from otcli.domain.exceptions import OdooCLIError
 
 logger = logging.getLogger(__name__)
 

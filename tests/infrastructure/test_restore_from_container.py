@@ -16,8 +16,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from odoo_task_cli.domain.exceptions import OdooCLIError
-from odoo_task_cli.infrastructure import odoo_client
+from otcli.domain.exceptions import OdooCLIError
+from otcli.infrastructure import restore as restore_mod
 
 
 def _make_valid_backup(path: Path, filestore_files: int = 2) -> Path:
@@ -62,11 +62,11 @@ class TestRestoreFromContainer:
             return MagicMock(exit_code=0, output=b'')
 
         with (
-            patch.object(odoo_client, '_get_container', return_value=MagicMock()),
-            patch.object(odoo_client, '_copy_file_to_container'),
-            patch.object(odoo_client, '_exec_in_container', side_effect=fake_exec),
+            patch.object(restore_mod, '_get_container', return_value=MagicMock()),
+            patch.object(restore_mod, '_copy_file_to_container'),
+            patch.object(restore_mod, '_exec_in_container', side_effect=fake_exec),
         ):
-            odoo_client.restore_database_from_container(str(backup))
+            restore_mod.restore_database_from_container(str(backup))
 
         # Must have invoked createdb and psql with ON_ERROR_STOP.
         assert any(c.startswith('createdb') for c in executed)
@@ -78,12 +78,12 @@ class TestRestoreFromContainer:
             zf.writestr('not_a_dump.txt', 'nope')
 
         with (
-            patch.object(odoo_client, '_get_container') as gc,
-            patch.object(odoo_client, '_copy_file_to_container') as cp,
-            patch.object(odoo_client, '_exec_in_container') as ex,
+            patch.object(restore_mod, '_get_container') as gc,
+            patch.object(restore_mod, '_copy_file_to_container') as cp,
+            patch.object(restore_mod, '_exec_in_container') as ex,
         ):
             with pytest.raises(OdooCLIError):
-                odoo_client.restore_database_from_container(str(bad))
+                restore_mod.restore_database_from_container(str(bad))
             gc.assert_not_called()
             cp.assert_not_called()
             ex.assert_not_called()
@@ -95,14 +95,14 @@ class TestRestoreFromContainer:
 
         # Track all created temp dirs so we can assert cleanup.
         created: list[str] = []
-        real_mkdtemp = odoo_client.tempfile.mkdtemp
+        real_mkdtemp = restore_mod.tempfile.mkdtemp
 
         def tracking_mkdtemp(*args, **kwargs):
             d = real_mkdtemp(*args, **kwargs)
             created.append(d)
             return d
 
-        monkeypatch.setattr(odoo_client.tempfile, 'mkdtemp', tracking_mkdtemp)
+        monkeypatch.setattr(restore_mod.tempfile, 'mkdtemp', tracking_mkdtemp)
 
         def fake_exec(container, cmd, check=True):
             if 'psql' in cmd:
@@ -110,12 +110,12 @@ class TestRestoreFromContainer:
             return MagicMock(exit_code=0, output=b'')
 
         with (
-            patch.object(odoo_client, '_get_container', return_value=MagicMock()),
-            patch.object(odoo_client, '_copy_file_to_container'),
-            patch.object(odoo_client, '_exec_in_container', side_effect=fake_exec),
+            patch.object(restore_mod, '_get_container', return_value=MagicMock()),
+            patch.object(restore_mod, '_copy_file_to_container'),
+            patch.object(restore_mod, '_exec_in_container', side_effect=fake_exec),
             pytest.raises(OdooCLIError),
         ):
-            odoo_client.restore_database_from_container(str(backup))
+            restore_mod.restore_database_from_container(str(backup))
 
         assert created, 'tempfile.mkdtemp was not used'
         for d in created:
@@ -125,11 +125,11 @@ class TestRestoreFromContainer:
         backup = _make_valid_backup(tmp_path / 'backup.zip', filestore_files=3)
 
         with (
-            patch.object(odoo_client, '_get_container', return_value=MagicMock()),
-            patch.object(odoo_client, '_copy_file_to_container'),
-            patch.object(odoo_client, '_exec_in_container', return_value=MagicMock(exit_code=0, output=b'')),
+            patch.object(restore_mod, '_get_container', return_value=MagicMock()),
+            patch.object(restore_mod, '_copy_file_to_container'),
+            patch.object(restore_mod, '_exec_in_container', return_value=MagicMock(exit_code=0, output=b'')),
         ):
-            odoo_client.restore_database_from_container(str(backup))
+            restore_mod.restore_database_from_container(str(backup))
 
         final = configured_target['filestore_root'] / 'target_db'
         assert final.is_dir()

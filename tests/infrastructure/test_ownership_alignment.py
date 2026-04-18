@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 import pytest
 
-from odoo_task_cli.infrastructure import odoo_client
+from otcli.infrastructure import restore as restore_mod
 
 
 class TestAlignOwnership:
@@ -50,7 +50,7 @@ class TestAlignOwnership:
             patch('os.chown', side_effect=lambda p, u, g: chown_calls.append((str(p), u, g))),
             patch('os.chmod', side_effect=lambda p, m: chmod_calls.append((str(p), m))),
         ):
-            odoo_client._align_ownership(str(target), str(ref))
+            restore_mod._align_ownership(str(target), str(ref))
 
         chowned_paths = {p for p, _, _ in chown_calls}
         assert str(target) in chowned_paths
@@ -93,7 +93,7 @@ class TestAlignOwnership:
             patch('os.chmod'),
         ):
             # Must NOT raise.
-            odoo_client._align_ownership(str(target), str(ref))
+            restore_mod._align_ownership(str(target), str(ref))
 
         assert any(
             'permission' in rec.message.lower() or 'permiso' in rec.message.lower() for rec in caplog.records
@@ -107,7 +107,7 @@ class TestAlignOwnership:
 
         with caplog.at_level('WARNING'):
             # Must not raise and not touch anything.
-            odoo_client._align_ownership(str(target), str(ref))
+            restore_mod._align_ownership(str(target), str(ref))
 
         # File is intact.
         assert (target / 'f.bin').exists()
@@ -145,16 +145,16 @@ class TestRestoreAlignsOwnership:
             align_calls.append((path, reference))
 
         with (
-            patch.object(odoo_client, '_get_container', return_value=MagicMock()),
-            patch.object(odoo_client, '_copy_file_to_container'),
+            patch.object(restore_mod, '_get_container', return_value=MagicMock()),
+            patch.object(restore_mod, '_copy_file_to_container'),
             patch.object(
-                odoo_client,
+                restore_mod,
                 '_exec_in_container',
                 return_value=MagicMock(exit_code=0, output=b''),
             ),
-            patch.object(odoo_client, '_align_ownership', side_effect=fake_align),
+            patch.object(restore_mod, '_align_ownership', side_effect=fake_align),
         ):
-            odoo_client.restore_database_from_container(str(backup))
+            restore_mod.restore_database_from_container(str(backup))
 
         assert align_calls, 'restore did not call _align_ownership'
         path, reference = align_calls[0]

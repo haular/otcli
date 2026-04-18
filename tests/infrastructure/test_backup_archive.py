@@ -6,7 +6,7 @@ import json
 import zipfile
 from pathlib import Path
 
-from odoo_task_cli.infrastructure import db_client
+from otcli.infrastructure import backup
 
 
 def _write(p: Path, content: bytes = b'x') -> Path:
@@ -23,7 +23,7 @@ class TestCompressBackup:
 
         out_dir = tmp_path / 'out'
         out_dir.mkdir()
-        zip_path = db_client._compress_backup('db_2026', str(source), str(out_dir))
+        zip_path = backup._compress_backup('db_2026', str(source), str(out_dir))
 
         with zipfile.ZipFile(zip_path) as zf:
             infos = zf.infolist()
@@ -39,7 +39,7 @@ class TestCompressBackup:
 
         out_dir = tmp_path / 'out'
         out_dir.mkdir()
-        zip_path = db_client._compress_backup('db_2026', str(source), str(out_dir))
+        zip_path = backup._compress_backup('db_2026', str(source), str(out_dir))
 
         with zipfile.ZipFile(zip_path) as zf:
             names = set(zf.namelist())

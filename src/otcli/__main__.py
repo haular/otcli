@@ -1,4 +1,4 @@
-from odoo_task_cli.cli import app
+from otcli.cli import app
 
 
 def main():

@@ -12,9 +12,9 @@ import zipfile
 
 import typer
 
-from odoo_task_cli.config import config
-from odoo_task_cli.domain.exceptions import OdooCLIError
-from odoo_task_cli.infrastructure.docker_client import (
+from otcli.bootstrap import config
+from otcli.domain.exceptions import OdooCLIError
+from otcli.infrastructure.docker import (
     _copy_file_from_container,
     _exec_in_container,
     _get_container,
