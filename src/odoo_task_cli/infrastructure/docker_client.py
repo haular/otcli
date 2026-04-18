@@ -1,9 +1,9 @@
 """
 Utility functions for Docker operations.
 """
+
 import logging
 import sys
-from typing import Optional
 
 import docker
 import typer
@@ -31,7 +31,7 @@ def _get_container(container_name: str) -> Container:
     client = docker.DockerClient(base_url='unix://var/run/docker.sock', timeout=1000)
     try:
         container = client.containers.get(container_name)
-        if container.status != "running":
+        if container.status != 'running':
             typer.echo(f"Error: Container '{container_name}' is not running.")
             sys.exit(1)
         return container
@@ -52,7 +52,12 @@ def _copy_file_from_container(container_name: str, src_path: str, dest_path: str
     Raises:
         SystemExit: If the copy operation fails
     """
-    command = ['docker', 'cp', f'{container_name}:{src_path}', dest_path, ]
+    command = [
+        'docker',
+        'cp',
+        f'{container_name}:{src_path}',
+        dest_path,
+    ]
     run(command)
 
 
@@ -68,33 +73,64 @@ def _copy_file_to_container(container_name: str, src_path: str, dest_path: str) 
     Raises:
         SystemExit: If the copy operation fails
     """
-    command = ['docker', 'cp', src_path, f'{container_name}:{dest_path}', ]
+    command = [
+        'docker',
+        'cp',
+        src_path,
+        f'{container_name}:{dest_path}',
+    ]
     run(command)
 
 
-def _exec_in_container(container: Container, command: str, sys_exit=True) -> Optional[tuple]:
-    """
-    Execute a command in a Docker container.
+def _exec_in_container(
+    container: Container,
+    command: str,
+    check: bool = True,
+    **_legacy: object,
+) -> object | None:
+    """Execute a command inside a Docker container.
 
     Args:
-        container: Container instance
-        command: Command to execute
+        container: Container instance.
+        command: Command string to execute.
+        check: When ``True`` (default), raise :class:`ContainerNotFoundError`
+            on a non-zero exit code. When ``False``, the non-zero result is
+            returned so the caller can decide what to do (useful for best-effort
+            commands such as ``dropdb`` against a possibly-missing database).
+
+    Additional keyword arguments are accepted for backwards compatibility
+    (the parameter used to be called ``sys_exit``) but ignored.
 
     Returns:
-        Tuple of (exit_code, output) if successful, None otherwise
+        The ``exec_run`` result object. ``None`` is never returned on success.
 
     Raises:
-        SystemExit: If the command execution fails
+        ContainerNotFoundError: If ``check`` is True and the command exits
+            with a non-zero status, or if the Docker API raises an error.
     """
+    # Backwards compatibility: some callers may still pass ``sys_exit``.
+    if 'sys_exit' in _legacy:
+        check = bool(_legacy['sys_exit'])
+
+    typer.echo(f'Executing in container: {command}')
     try:
-        typer.echo(f"Executing in container: {command}")
         result = container.exec_run(command)
-        if result.exit_code != 0:
-            raise ContainerNotFoundError(
-                f"Error: Command execution failed in container: {command}\nOutput: {result.output.decode('utf-8')}")
-        return result
-    except Exception as e:
-        raise ContainerNotFoundError(f"Error: Failed to execute command in container: {command}\n{e}")
+    except ContainerNotFoundError:
+        raise
+    except Exception as e:  # pragma: no cover - defensive
+        raise ContainerNotFoundError(f'Error: Failed to execute command in container: {command}\n{e}') from e
+
+    if result.exit_code != 0:
+        output = result.output.decode('utf-8', errors='replace') if result.output else ''
+        if check:
+            raise ContainerNotFoundError(f'Error: Command execution failed in container: {command}\nOutput: {output}')
+        logger.warning(
+            'Non-zero exit (%s) from container command (ignored): %s\n%s',
+            result.exit_code,
+            command,
+            output,
+        )
+    return result
 
 
 def list_running_containers() -> list[str]:
@@ -109,8 +145,8 @@ def list_running_containers() -> list[str]:
         containers = client.containers.list()
         return [c.name for c in containers]
     except Exception as e:
-        typer.echo(f"Error al listar contenedores Docker: {e}")
-        logger.error(f"Error al listar contenedores Docker: {e}")
+        typer.echo(f'Error al listar contenedores Docker: {e}')
+        logger.error(f'Error al listar contenedores Docker: {e}')
         return []
 
 
@@ -130,7 +166,7 @@ def list_databases_in_container(container_name: str) -> list[str]:
 
     # Ejecutar psql -l para listar las bases de datos
     # Usamos 'odoo' como usuario por defecto, puedes ajustarlo si es necesario
-    command = "psql -U odoo -l -t -A"  # -t para solo tuplas, -A para sin alineación
+    command = 'psql -U odoo -l -t -A'  # -t para solo tuplas, -A para sin alineación
     result = _exec_in_container(container, command, sys_exit=False)
 
     if result and result.exit_code == 0:
@@ -144,5 +180,4 @@ def list_databases_in_container(container_name: str) -> list[str]:
                 if db_name and db_name not in ['template0', 'template1', 'postgres']:
                     databases.append(db_name)
         return databases
-    else:
-        raise ContainerNotFoundError(f"Error: No se pudieron listar las bases de datos en el contenedor '{container_name}'.")
+    raise ContainerNotFoundError(f"Error: No se pudieron listar las bases de datos en el contenedor '{container_name}'.")

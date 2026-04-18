@@ -25,10 +25,10 @@ class DotDict(dict):
         try:
             # Intenta devolver el valor de la clave del diccionario
             return self[name]
-        except KeyError:
+        except KeyError as err:
             # Si la clave no existe, lanza un AttributeError,
             # que es el comportamiento esperado para atributos.
-            raise AttributeError(f"El objeto 'DotDict' no tiene el atributo o clave '{name}'")
+            raise AttributeError(f"El objeto 'DotDict' no tiene el atributo o clave '{name}'") from err
 
     def __setattr__(self, name, value):
         """
@@ -47,8 +47,8 @@ class DotDict(dict):
         """
         try:
             del self[name]
-        except KeyError:
-            raise AttributeError(f"El objeto 'DotDict' no tiene el atributo o clave '{name}'")
+        except KeyError as err:
+            raise AttributeError(f"El objeto 'DotDict' no tiene el atributo o clave '{name}'") from err
 
     def update(self, *args, **kwargs):
         """

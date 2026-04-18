@@ -147,6 +147,8 @@ pip-selfcheck.json
 __pycache__/
 backups/
 odoo_cli.egg-info/
+*.egg-info/
+opencode.json
 uv.lock
 
 # Python build artifacts
