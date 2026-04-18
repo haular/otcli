@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import zipfile
@@ -226,6 +227,132 @@ def _validate_backup_zip(backup_file: str) -> None:
         raise OdooCLIError(f'Backup file is not a valid zip: {backup_file}') from err
 
 
+def _read_reference_ownership(reference: str) -> tuple[int, int, int, int] | None:
+    """Return ``(uid, gid, dir_mode, file_mode)`` from ``reference``.
+
+    Returns ``None`` with a WARNING logged if the path is missing or can't be
+    ``stat``'d.
+    """
+    if not os.path.exists(reference):
+        logger.warning(
+            'Cannot align filestore ownership: reference path %s does not exist.',
+            reference,
+        )
+        return None
+    try:
+        ref_stat = os.stat(reference)
+    except OSError as err:
+        logger.warning('Cannot stat reference path %s: %s', reference, err)
+        return None
+
+    dir_mode = stat.S_IMODE(ref_stat.st_mode)
+    # Drop execute bits from the file mode; filestore attachments are data.
+    file_mode = dir_mode & 0o666
+    return ref_stat.st_uid, ref_stat.st_gid, dir_mode, file_mode
+
+
+def _apply_ownership_to_entry(
+    entry_path: str,
+    *,
+    is_dir: bool,
+    is_symlink: bool,
+    uid: int,
+    gid: int,
+    dir_mode: int,
+    file_mode: int,
+) -> str | None:
+    """Apply chown/chmod to a single entry.
+
+    Returns ``None`` on success or a short error kind on failure:
+    ``'permission'`` (PermissionError) or ``'other'`` (OSError).
+    """
+    try:
+        if is_symlink:
+            if os.chown in getattr(os, 'supports_follow_symlinks', set()):
+                os.chown(entry_path, uid, gid, follow_symlinks=False)
+            else:
+                os.chown(entry_path, uid, gid)
+            return None
+
+        os.chown(entry_path, uid, gid)
+        os.chmod(entry_path, dir_mode if is_dir else file_mode)
+        return None
+    except PermissionError:
+        return 'permission'
+    except OSError as err:
+        logger.warning('chown/chmod failed on %s: %s', entry_path, err)
+        return 'other'
+
+
+def _iter_paths_for_alignment(root: str):
+    """Yield ``(path, is_dir, is_symlink)`` for the root and every descendant."""
+    yield root, os.path.isdir(root), os.path.islink(root)
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        for name in dirnames:
+            full = os.path.join(dirpath, name)
+            yield full, True, os.path.islink(full)
+        for name in filenames:
+            full = os.path.join(dirpath, name)
+            yield full, False, os.path.islink(full)
+
+
+def _align_ownership(path: str, reference: str) -> None:
+    """Align owner/group/mode of ``path`` (recursively) with ``reference``.
+
+    This is needed when the CLI runs as a different user than the one that
+    owns the host filestore directory (the canonical example is running the
+    tool as ``root`` against a filestore owned by UID/GID 1000 belonging to
+    the Odoo container user).
+
+    Behaviour:
+      * Reads uid/gid and mode from :func:`os.stat` on ``reference``.
+      * Applies them recursively to ``path``: directories receive the exact
+        reference mode; regular files receive ``reference_mode & 0o666``
+        (drop execute bits) so attachments remain readable/writable but not
+        executable.
+      * On ``PermissionError`` (e.g. not running as root and target belongs
+        to someone else), a single actionable WARNING is logged and the
+        function returns normally; the restore itself is considered
+        successful because the data is in place.
+      * If ``reference`` does not exist, a WARNING is logged and the function
+        is a no-op.
+
+    Symlinks encountered during traversal are not dereferenced; they are
+    chown'd via :func:`os.chown` with ``follow_symlinks=False`` when
+    supported. ``os.chmod`` is skipped for symlinks because mode bits on
+    symlinks are a no-op on Linux.
+    """
+    ownership = _read_reference_ownership(reference)
+    if ownership is None:
+        return
+    uid, gid, dir_mode, file_mode = ownership
+
+    permission_denied_reported = False
+    for entry_path, is_dir, is_symlink in _iter_paths_for_alignment(path):
+        result = _apply_ownership_to_entry(
+            entry_path,
+            is_dir=is_dir,
+            is_symlink=is_symlink,
+            uid=uid,
+            gid=gid,
+            dir_mode=dir_mode,
+            file_mode=file_mode,
+        )
+        if result == 'permission' and not permission_denied_reported:
+            logger.warning(
+                'No se pudieron ajustar permisos del filestore en %s '
+                '(owner esperado %s:%s). '
+                'Ejecuta manualmente: sudo chown -R %s:%s %s',
+                entry_path,
+                uid,
+                gid,
+                uid,
+                gid,
+                path,
+            )
+            permission_denied_reported = True
+
+
 def _verify_filestore_after_restore(extracted_filestore: str, final_path: str) -> None:
     """Compare file counts between the extracted and final filestore dirs.
 
@@ -347,6 +474,11 @@ def restore_database_from_container(backup_file: str) -> None:
                     f'Filestore restore verification failed: expected '
                     f'{expected} files, got {dst_count} in {final_filestore_path}.'
                 )
+
+            # Align owner/group/mode with the base filestore directory so that
+            # the Odoo container user can read the restored files even when
+            # the CLI was run as root (or as a different UID).
+            _align_ownership(final_filestore_path, target_filestore_dir)
 
             logger.info(
                 'Filestore restoration completed successfully (%d files).',
