@@ -11,6 +11,7 @@ We do not actually switch UIDs in these tests: we mock ``os.chown`` and
 
 from __future__ import annotations
 
+import logging
 import os
 import stat
 from pathlib import Path
@@ -95,9 +96,11 @@ class TestAlignOwnership:
             # Must NOT raise.
             restore_mod._align_ownership(str(target), str(ref))
 
-        assert any(
-            'permission' in rec.message.lower() or 'permiso' in rec.message.lower() for rec in caplog.records
-        ), 'expected a WARNING about permissions'
+        def _mentions_permission(record: logging.LogRecord) -> bool:
+            msg = record.message.lower()
+            return 'permission' in msg or 'permiso' in msg
+
+        assert any(_mentions_permission(r) for r in caplog.records), 'expected a WARNING about permissions'
 
     def test_missing_reference_is_warned_and_noop(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         ref = tmp_path / 'does_not_exist'

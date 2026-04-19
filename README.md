@@ -1,145 +1,126 @@
-# Odoo Task CLI Tool
+# otcli — Odoo Tasks CLI
 
-A tool for automating the migration of Odoo databases from one version to another.
+A small command-line tool that automates **backup**, **restore** and **upgrade**
+of Odoo databases running in Docker, including the host-side FileStore.
 
-## Overview
-
-This tool automates the complex process of migrating an Odoo database from an old version to a new one, handling
-backups, official upgrades, and restoration with user confirmations.
+> Status: alpha. Tested against Odoo 16+ with a containerised PostgreSQL.
 
 ## Features
 
-- Database backup and restoration
-- Official Odoo upgrade process
-- Filestore copying
-- Post-migration commands execution
-- Environment-specific configuration
-
-## Project Structure
-
-```
-odoo_cli_tool/
-├── .venv/                         # Virtual environment managed by uv
-├── .python-version                # Fixes the Python version
-├── pyproject.toml                 # Project configuration and dependencies
-├── README.md                      # This file
-├── LICENSE                        # MIT License
-├── config/                        # Environment-specific configuration
-│   ├── production.toml            # Production environment configuration
-│   └── test.toml                  # Test environment configuration
-├── src/                           # Source code directory
-│   └── odoo_task_cli/                  # Main package
-│       ├── __init__.py            # Package initialization
-│       ├── __main__.py            # Entry point for CLI execution
-│       ├── core/                  # Business logic
-│       │   ├── __init__.py
-│       │   ├── entities/          # Domain models
-│       │   │   ├── __init__.py
-│       │   │   └── config_models.py # Pydantic models for configuration
-│       │   ├── use_cases/         # Application use cases
-│       │   │   ├── __init__.py
-│       │   │   ├── db.py     # Database backup functionality
-│       │   │   ├── upload_odoo.py   # Odoo upgrade functionality
-│       │   │   ├── restore_db.py    # Database restoration
-│       │   │   ├── copy_filestore.py # Filestore management
-│       │   │   └── run_misc_command.py # Git and other commands execution
-│       │   └── common/            # Common utilities
-│       │       ├── __init__.py
-│       │       └── utils.py       # Common utility functions
-│       └── infra/                 # Infrastructure layer
-│           ├── __init__.py
-│           ├── gateways/          # External interfaces
-│           │   ├── __init__.py
-│           │   ├── docker_manager.py # Docker operations
-│           │   ├── odoo_api.py    # Odoo API operations
-│           │   ├── git_manager.py # Git operations
-│           │   └── command_manager.py # Command execution
-│           └── cli/               # CLI interface
-│               ├── __init__.py
-│               └── app.py         # Typer CLI application
-└── tests/                         # Test directory
-    ├── unit/                      # Unit tests
-    └── integration/               # Integration tests
-```
+- **Backup**: `pg_dump` of the Odoo database plus an optional copy of the
+  host filestore, packaged together in a single deflated `.zip` with a
+  `manifest.json` describing its contents.
+- **Restore (Docker path)**: creates the database if it doesn't exist, drops
+  it if it does, streams the dump through `psql` with `ON_ERROR_STOP=1`, and
+  moves the filestore back to its canonical location. Owner/group/mode are
+  aligned automatically with the base filestore directory so the Odoo
+  container can read its own attachments even when the CLI is run as root.
+- **Restore (HTTP path)**: posts the archive to
+  `POST /web/database/restore` for Odoo instances exposing the database
+  manager.
+- **Upgrade**: wraps the official `upgrade.odoo.com` upgrade script.
+- **Interactive menu** for the same operations, with the client config
+  persisted in TOML.
 
 ## Installation
 
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd odoo_cli_tool
-   ```
-
-2. Create a virtual environment and install dependencies using uv:
-   ```bash
-   uv venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   uv pip install -e .
-   ```
-
-   Or using pip:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   pip install -e .
-   ```
-
-3. Create or edit the configuration files in the `config` directory.
-
-## Usage
-
-Run the CLI tool:
+Requires Python 3.12+. The canonical workflow uses [`uv`](https://docs.astral.sh/uv/):
 
 ```bash
-# If installed with -e
-otcli
-
-# Or using the module directly
-python -m odoo_task_cli
+git clone <repository-url>
+cd odoo_cli_tool
+uv venv
+source .venv/bin/activate
+uv pip install -e .
 ```
 
-The tool will guide you through the migration process with interactive prompts.
-
-## Configuration
-
-Configuration is done through TOML files in the `~/.odoo_task_cli_config/clientes/` directory. Each client will have its
-own TOML file (e.g., `my_client.toml`).
-
-Each configuration file contains the following sections:
-
-- **General settings**:
-    - `environment`: Indicates if the database environment is 'test' or 'production'.
-    - `technical_client_name`: Technical name of the client. Used as the database name and for the filestore directory.
-    - `url`: URL used to restore the database via a CURL request (e.g., http://localhost:8069).
-    - `upgrade_target`: Defines the target for the database upgrade (e.g., '18.0').
-    - `master_pwd`: Odoo master password for database operations.
-    - `filestore_dir`: Absolute path to the Odoo filestore directory. 'filestore' and the technical client name will be
-      appended (e.g., /mnt/filestore/filestore_my_client).
-    - `code_subscription`: Odoo subscription code for the upgrade service.
-    - `db_container_name`: Name of the Docker database container (PostgreSQL).
-    - `odoo_container_name`: Name of the Odoo instance Docker container.
-    - `repo_path`: Absolute path to the project's Git repository.
-
-- **Commands**:
-    - `commands`: A list of commands to execute after certain operations. Each command can be a Git hash or a shell
-      command.
-
-## Development
-
-Install development dependencies:
+For the development environment (adds `pytest`, `ruff`, `pre-commit`):
 
 ```bash
 uv pip install -e ".[dev]"
+pre-commit install          # optional, auto-runs ruff on commit
 ```
 
-### Testing
-
-Run tests with pytest:
+## Usage
 
 ```bash
-pytest
+otcli --help                # list commands
+otcli backup                # backup with filestore (default)
+otcli backup --no-filestore # dump only
+otcli restore               # interactive restore
+otcli upgrade BACKUP.zip    # upgrade a backup file via upgrade.odoo.com
+otcli interactive           # menu-driven flow
+```
+
+On the first invocation, `otcli` asks you to register a client and writes
+`~/.odoo_task_cli_config/clientes/<client>.toml`. Backups are stored in
+`~/.odoo_task_cli_config/backups/`.
+
+### Environment variables
+
+| Variable | Purpose |
+|---|---|
+| `OTCLI_FILESTORE_MISSING_TOLERANCE` | Accept up to N missing files during filestore backup/restore verification (default: 0, i.e. any loss aborts). |
+
+## Client configuration (TOML)
+
+Each client is a TOML file under `~/.odoo_task_cli_config/clientes/`. Keys:
+
+| Key | Meaning |
+|---|---|
+| `environment` | `'test'` or `'production'`. |
+| `technical_client_name` | Used as DB name and as the filestore subdirectory. |
+| `db_name` | Database name (usually equals `technical_client_name`). |
+| `url` | Base URL for HTTP-based restore (e.g. `http://localhost:8069`). |
+| `upgrade_target` | Target Odoo version for the upgrade command (e.g. `'18.0'`). |
+| `master_pwd` | Odoo master password (HTTP path only). |
+| `filestore_dir` | Base path for filestores. `otcli` appends `filestore/<client>` automatically. |
+| `code_subscription` | Odoo subscription code for the upgrade service. |
+| `db_container_name` | Docker container running PostgreSQL. |
+| `odoo_container_name` | Docker container running Odoo. |
+| `repo_path` | Absolute path to the project repository (used by the upgrade flow). |
+
+The interactive `otcli` command can create and edit these files for you.
+
+## Project layout
+
+```
+src/otcli/
+├── __main__.py              # entry point (python -m otcli / otcli)
+├── bootstrap.py             # client discovery + global config singleton
+├── cli/
+│   └── app.py               # Typer application (backup / restore / upgrade / interactive)
+├── domain/
+│   ├── dotdict.py           # dot-notation dict used for the config object
+│   ├── exceptions.py        # OdooCLIError hierarchy
+│   ├── shell.py             # subprocess.run wrapper
+│   └── workdir.py           # cd into the configured working directory
+├── infrastructure/
+│   ├── backup.py            # pg_dump + copy filestore + zip (with manifest)
+│   ├── client_config.py     # load/save TOML client configs
+│   ├── docker.py            # docker SDK helpers
+│   ├── odoo_http.py         # HTTP endpoints (restore/drop/list)
+│   ├── restore.py           # Docker-path restore + ownership alignment
+│   └── upgrade.py           # wrapper around upgrade.odoo.com
+└── services/
+    ├── _prompts.py          # interactive prompt helpers
+    ├── backup.py            # backup orchestration
+    ├── config_edit.py       # interactive TOML editor
+    ├── restore.py           # restore orchestration (Docker or HTTP)
+    └── upgrade.py           # upgrade orchestration
+```
+
+## Development
+
+```bash
+# Run the test suite
+python -m pytest tests/
+
+# Lint and format
+ruff check src/ tests/
+ruff format src/ tests/
 ```
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT — see `LICENSE`.
