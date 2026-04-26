@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed (BREAKING)
+
+- Drop the `docker` Python SDK runtime dependency. The infrastructure
+  layer now talks to Docker via `subprocess` calls to the `docker` CLI
+  binary (which is already required to run otcli). This trims about a
+  dozen transitive deps (`requests`, `urllib3`, `websocket-client`,
+  `paramiko`, `cryptography`, …) at the cost of requiring the `docker`
+  binary on `$PATH` (a constraint that already held in practice).
+- Drop the `toml` package; reads now use stdlib `tomllib` and writes
+  use `tomli-w`. `toml` was unmaintained since 2021.
+
 ### Changed (BREAKING)
 
 - **New TOML schema.** Client configurations now use sectioned TOMLs

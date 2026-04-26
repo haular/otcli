@@ -1,114 +1,107 @@
+"""Docker helpers backed by the ``docker`` CLI via :mod:`subprocess`.
+
+Earlier versions of otcli depended on the ``docker`` Python SDK (which
+in turn pulls in ``requests``, ``urllib3``, ``websocket-client``, …).
+We only ever used three operations: get a running container, exec a
+command inside it, and copy files in and out. All three are trivially
+expressible as ``docker`` CLI calls, so the SDK adds disproportionate
+weight for a small CLI tool. This module replaces it with thin
+subprocess wrappers and removes the runtime dependency entirely.
+
+The public functions keep the same names and signatures so the rest of
+the codebase (and the existing test suite) does not need to change.
 """
-Utility functions for Docker operations.
-"""
+
+from __future__ import annotations
 
 import logging
-import sys
+import shlex
+import subprocess
+from dataclasses import dataclass
 
-import docker
 import typer
-from docker.models.containers import Container
 
-from otcli.domain.exceptions import ContainerNotFoundError
+from otcli.domain.exceptions import ContainerNotFoundError, OdooCLIError
 from otcli.domain.shell import run
 
 logger = logging.getLogger(__name__)
 
 
-def _get_container(container_name: str) -> Container:
+@dataclass(slots=True)
+class _ContainerHandle:
+    """Lightweight stand-in for the previous ``docker.models.containers.Container``.
+
+    Exposes just enough of the SDK's surface for our callers — namely
+    ``exec_run`` returning a value with ``exit_code`` and ``output``.
     """
-    Get a Docker container by name.
 
-    Args:
-        container_name: Name of the container
+    name: str
 
-    Returns:
-        Container instance
+    def exec_run(self, command: str) -> _ExecResult:
+        argv = ['docker', 'exec', self.name, *shlex.split(command)]
+        proc = subprocess.run(argv, check=False, capture_output=True)
+        # Mimic the SDK's behaviour: stdout and stderr concatenated as
+        # the ``output`` byte-string. Use stderr only when stdout is
+        # empty so successful runs stay clean.
+        output = proc.stdout if proc.stdout else proc.stderr
+        return _ExecResult(exit_code=proc.returncode, output=output or b'')
 
-    Raises:
-        SystemExit: If the container doesn't exist or is not running
-    """
-    client = docker.DockerClient(base_url='unix://var/run/docker.sock', timeout=1000)
+
+@dataclass(slots=True)
+class _ExecResult:
+    exit_code: int
+    output: bytes
+
+
+def _get_container(container_name: str) -> _ContainerHandle:
+    """Verify that ``container_name`` exists and is running, then return a handle."""
     try:
-        container = client.containers.get(container_name)
-        if container.status != 'running':
-            typer.echo(f"Error: Container '{container_name}' is not running.")
-            sys.exit(1)
-        return container
-    except docker.errors.NotFound:
-        typer.echo(f"Error: Container '{container_name}' does not exist.")
-        sys.exit(1)
+        proc = subprocess.run(
+            ['docker', 'inspect', '--format={{.State.Status}}', container_name],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as err:
+        raise OdooCLIError(f'docker is not installed on this host: {err}') from err
+
+    if proc.returncode != 0:
+        raise ContainerNotFoundError(f"Container '{container_name}' does not exist.")
+    status = proc.stdout.strip()
+    if status != 'running':
+        raise ContainerNotFoundError(f"Container '{container_name}' is not running (status: {status}).")
+    return _ContainerHandle(name=container_name)
 
 
 def _copy_file_from_container(container_name: str, src_path: str, dest_path: str) -> None:
-    """
-    Copy a file from a Docker container to the host.
-
-    Args:
-        container_name: Name of the container
-        src_path: Source path in the container
-        dest_path: Destination path on the host
-
-    Raises:
-        SystemExit: If the copy operation fails
-    """
-    command = [
-        'docker',
-        'cp',
-        f'{container_name}:{src_path}',
-        dest_path,
-    ]
-    run(command)
+    """Copy a file from a Docker container to the host."""
+    run(['docker', 'cp', f'{container_name}:{src_path}', dest_path])
 
 
 def _copy_file_to_container(container_name: str, src_path: str, dest_path: str) -> None:
-    """
-    Copy a file from the host to a Docker container.
-
-    Args:
-        container_name: Name of the container
-        src_path: Source path on the host
-        dest_path: Destination path in the container
-
-    Raises:
-        SystemExit: If the copy operation fails
-    """
-    command = [
-        'docker',
-        'cp',
-        src_path,
-        f'{container_name}:{dest_path}',
-    ]
-    run(command)
+    """Copy a file from the host to a Docker container."""
+    run(['docker', 'cp', src_path, f'{container_name}:{dest_path}'])
 
 
 def _exec_in_container(
-    container: Container,
+    container: _ContainerHandle,
     command: str,
     check: bool = True,
     **_legacy: object,
-) -> object | None:
-    """Execute a command inside a Docker container.
+) -> _ExecResult:
+    """Execute ``command`` inside ``container``.
 
     Args:
-        container: Container instance.
-        command: Command string to execute.
-        check: When ``True`` (default), raise :class:`ContainerNotFoundError`
-            on a non-zero exit code. When ``False``, the non-zero result is
-            returned so the caller can decide what to do (useful for best-effort
-            commands such as ``dropdb`` against a possibly-missing database).
+        container: Handle returned by :func:`_get_container`.
+        command: Command string to execute. Parsed with ``shlex.split``.
+        check: When ``True``, raise :class:`ContainerNotFoundError` on a
+            non-zero exit code. When ``False``, the result is returned
+            so the caller can decide what to do (used for best-effort
+            invocations such as ``dropdb`` against a missing DB).
 
     Additional keyword arguments are accepted for backwards compatibility
     (the parameter used to be called ``sys_exit``) but ignored.
-
-    Returns:
-        The ``exec_run`` result object. ``None`` is never returned on success.
-
-    Raises:
-        ContainerNotFoundError: If ``check`` is True and the command exits
-            with a non-zero status, or if the Docker API raises an error.
     """
-    # Backwards compatibility: some callers may still pass ``sys_exit``.
     if 'sys_exit' in _legacy:
         check = bool(_legacy['sys_exit'])
 
@@ -117,8 +110,8 @@ def _exec_in_container(
         result = container.exec_run(command)
     except ContainerNotFoundError:
         raise
-    except Exception as e:  # pragma: no cover - defensive
-        raise ContainerNotFoundError(f'Error: Failed to execute command in container: {command}\n{e}') from e
+    except Exception as err:  # pragma: no cover - defensive
+        raise ContainerNotFoundError(f'Error: Failed to execute command in container: {command}\n{err}') from err
 
     if result.exit_code != 0:
         output = result.output.decode('utf-8', errors='replace') if result.output else ''
@@ -134,50 +127,38 @@ def _exec_in_container(
 
 
 def list_running_containers() -> list[str]:
-    """
-    Lista los nombres de todos los contenedores Docker en ejecución.
-
-    Returns:
-        Una lista de nombres de contenedores en ejecución.
-    """
-    client = docker.from_env()
+    """Return the names of all currently-running Docker containers."""
     try:
-        containers = client.containers.list()
-        return [c.name for c in containers]
-    except Exception as e:
-        typer.echo(f'Error al listar contenedores Docker: {e}')
-        logger.error(f'Error al listar contenedores Docker: {e}')
+        proc = subprocess.run(
+            ['docker', 'ps', '--format={{.Names}}'],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as err:
+        logger.error('docker is not installed: %s', err)
         return []
+    if proc.returncode != 0:
+        logger.error('docker ps failed: %s', proc.stderr.strip())
+        return []
+    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
 
 
 def list_databases_in_container(container_name: str) -> list[str]:
-    """
-    Lista las bases de datos PostgreSQL dentro de un contenedor Docker.
-
-    Args:
-        container_name: El nombre del contenedor Docker.
-
-    Returns:
-        Una lista de nombres de bases de datos.
-    """
+    """List PostgreSQL databases reachable inside ``container_name`` via ``psql -l``."""
     container = _get_container(container_name)
-    if not container:
-        return []
+    result = _exec_in_container(container, 'psql -U odoo -l -t -A', check=False)
 
-    # Ejecutar psql -l para listar las bases de datos
-    # Usamos 'odoo' como usuario por defecto, puedes ajustarlo si es necesario
-    command = 'psql -U odoo -l -t -A'  # -t para solo tuplas, -A para sin alineación
-    result = _exec_in_container(container, command, sys_exit=False)
+    if result.exit_code != 0:
+        raise ContainerNotFoundError(f"Error: could not list databases in container '{container_name}'.")
 
-    if result and result.exit_code == 0:
-        output_lines = result.output.decode('utf-8').strip().split('\n')
-        databases = []
-        for line in output_lines:
-            parts = line.split('|')
-            if len(parts) > 0:
-                db_name = parts[0].strip()
-                # Filtrar bases de datos estándar como template0, template1, postgres
-                if db_name and db_name not in ['template0', 'template1', 'postgres']:
-                    databases.append(db_name)
-        return databases
-    raise ContainerNotFoundError(f"Error: No se pudieron listar las bases de datos en el contenedor '{container_name}'.")
+    output_lines = result.output.decode('utf-8', errors='replace').strip().split('\n')
+    databases: list[str] = []
+    for line in output_lines:
+        parts = line.split('|')
+        if not parts:
+            continue
+        db_name = parts[0].strip()
+        if db_name and db_name not in {'template0', 'template1', 'postgres'}:
+            databases.append(db_name)
+    return databases

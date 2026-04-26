@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "otcli"
-version = "1.0.0a2"
+version = "1.0.0rc1"
 description = "Odoo Tasks CLI: automate backup, restore and upgrade of Odoo databases."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -29,9 +29,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "docker>=6.1,<8",
     "typer>=0.9.0",
-    "toml>=0.10.2",
     "tomli-w>=1.0,<2",
     "questionary>=2.0,<3",
 ]
