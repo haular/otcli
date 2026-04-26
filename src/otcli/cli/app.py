@@ -178,15 +178,14 @@ def config_show_command(ctx: typer.Context) -> None:
     """Print the current client's configuration."""
     actx = get_context(ctx)
     typer.echo(f'Client: {actx.client.technical_name}')
-    typer.echo(f'  filestore_dir       : {actx.client.filestore_dir}')
-    typer.echo(f'  database.url        : {actx.client.database.url}')
-    typer.echo(f'  database.db_name    : {actx.client.database.db_name}')
-    typer.echo(f'  docker.db_container : {actx.client.docker.db_container}')
-    typer.echo(f'  docker.odoo_container: {actx.client.docker.odoo_container}')
-    typer.echo(f'  upgrade.target      : {actx.client.upgrade.target}')
-    typer.echo(f'  upgrade.environment : {actx.client.upgrade.environment}')
-    typer.echo(f'  upgrade.repo_path   : {actx.client.upgrade.repo_path}')
-    typer.echo(f'  commands            : {len(actx.client.commands)} configured')
+    typer.echo(f'  filestore_dir         : {actx.client.filestore_dir}')
+    typer.echo(f'  database.db_name      : {actx.client.database.db_name}')
+    typer.echo(f'  docker.db_container   : {actx.client.docker.db_container}')
+    typer.echo(f'  docker.odoo_container : {actx.client.docker.odoo_container}')
+    typer.echo(f'  docker.odoo_bin_path  : {actx.client.docker.odoo_bin_path or "(auto-detect)"}')
+    typer.echo(f'  upgrade.target        : {actx.client.upgrade.target}')
+    typer.echo(f'  upgrade.environment   : {actx.client.upgrade.environment}')
+    typer.echo(f'  upgrade.code_subscript: {actx.client.upgrade.code_subscription}')
 
 
 # --- 'backups' sub-app ---------------------------------------------------

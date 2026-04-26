@@ -19,15 +19,17 @@ from otcli.infrastructure.client_config_io import list_clients, load, save
 def _full_dict() -> dict:
     return {
         'client': {'technical_name': 'acme', 'filestore_dir': '/x'},
-        'database': {'url': 'http://x', 'master_pwd': 'p', 'db_name': 'acme'},
-        'docker': {'db_container': 'db', 'odoo_container': 'odoo'},
+        'database': {'db_name': 'acme'},
+        'docker': {
+            'db_container': 'db',
+            'odoo_container': 'odoo',
+            'odoo_bin_path': '',
+        },
         'upgrade': {
             'target': '18.0',
             'code_subscription': 'CODE',
             'environment': 'test',
-            'repo_path': '/r',
         },
-        'commands': [],
     }
 
 
