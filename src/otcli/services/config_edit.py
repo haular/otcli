@@ -68,6 +68,21 @@ DESCRIPTIONS = {
         '/home/user/projects/cliente/odoo.conf). Obligatorio: odoo-bin '
         'necesita -c para conocer la conexión a Postgres y los addons-path.'
     ),
+    'python_executable_native': (
+        'Ruta absoluta al int\u00e9rprete Python a usar para invocar odoo-bin. '
+        'Opcional: si lo dejas vac\u00edo se respeta el shebang de odoo-bin '
+        '(que normalmente apunta al python del sistema). Configura este '
+        'campo si Odoo tiene sus dependencias instaladas en un venv '
+        '(ej. /path/to/venv/bin/python3).'
+    ),
+    'python_executable_source': (
+        'Ruta absoluta al int\u00e9rprete Python a usar para invocar odoo-bin. '
+        'En instalaciones source, el shebang de odoo-bin apunta al python '
+        'del sistema, que normalmente NO tiene las dependencias de Odoo '
+        '(babel, psycopg2, etc.) y la neutralizaci\u00f3n falla con ImportError. '
+        'Configura este campo apuntando al python del venv donde corres '
+        'Odoo (ej. /home/user/developed/venvs/18.0/.venv/bin/python3).'
+    ),
     'technical_client_name': (
         'Nombre técnico del cliente. Se utilizará como nombre de la base de datos y para el directorio del filestore.'
     ),
@@ -95,6 +110,7 @@ _CONFIG_KEY_GETTERS: dict[str, Callable[[ClientConfig], str]] = {
     'odoo_container_name': lambda c: c.odoo.container_name,
     'odoo_bin_path': lambda c: c.odoo.odoo_bin_path,
     'odoo_conf_path': lambda c: c.odoo.odoo_conf_path,
+    'python_executable': lambda c: c.odoo.python_executable,
 }
 
 
@@ -120,15 +136,18 @@ def edit_configuration_interactive(existing: ClientConfig | None = None) -> Clie
     odoo_container_name = ''
     odoo_bin_path = ''
     odoo_conf_path = ''
+    python_executable = ''
     if install_mode == 'docker':
         odoo_container_name = _ask_odoo_container(existing)
         odoo_bin_path = _ask_odoo_bin_path(existing, mode='docker')
     elif install_mode == 'native':
         odoo_bin_path = _ask_odoo_bin_path(existing, mode='native')
         odoo_conf_path = _ask_odoo_conf_path(existing, mode='native')
+        python_executable = _ask_python_executable(existing, mode='native')
     elif install_mode == 'source':
         odoo_bin_path = _ask_odoo_bin_path(existing, mode='source')
         odoo_conf_path = _ask_odoo_conf_path(existing, mode='source')
+        python_executable = _ask_python_executable(existing, mode='source')
 
     cfg = ClientConfig(
         technical_name=technical_client_name,
@@ -140,6 +159,7 @@ def edit_configuration_interactive(existing: ClientConfig | None = None) -> Clie
             container_name=odoo_container_name,
             odoo_bin_path=odoo_bin_path,
             odoo_conf_path=odoo_conf_path,
+            python_executable=python_executable,
         ),
         upgrade=Upgrade(
             target=upgrade_target,
@@ -238,3 +258,10 @@ def _ask_odoo_conf_path(existing: ClientConfig | None, *, mode: str) -> str:
             typer.echo("La ruta del odoo.conf es obligatoria cuando install_mode='source'.")
 
     return _prompt_for_value('odoo_conf_path', current, description)
+
+
+def _ask_python_executable(existing: ClientConfig | None, *, mode: str) -> str:
+    """Ask for the Python interpreter to invoke odoo-bin with. Always optional."""
+    current = _existing_value(existing, 'python_executable')
+    description = DESCRIPTIONS[f'python_executable_{mode}']
+    return _prompt_for_value('python_executable', current, description)

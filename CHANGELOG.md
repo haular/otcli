@@ -53,6 +53,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Postgres); optional in `native` mode (the Debian package usually
   picks up `/etc/odoo/odoo.conf` automatically); ignored in
   `docker` mode (the container ships its own configuration).
+- New `odoo.python_executable` field (optional) lets the user override
+  the Python interpreter that `odoo-bin` is run with. Required in
+  practice for `source` installs where Odoo's runtime dependencies
+  live in a venv (the `odoo-bin` shebang resolves to the system
+  Python, which lacks `babel`, `psycopg2`, etc., and neutralize fails
+  with `ImportError`). Set this to the venv's `python3`. Ignored in
+  `docker` mode.
+
+### Fixed (post-restore neutralize)
+
+- `odoo-bin neutralize` argv order corrected: the `neutralize`
+  subcommand now goes immediately after `odoo-bin`, with `-c <conf>`
+  and `-d <db>` as per-subcommand options. The previous order
+  (`odoo-bin -c <conf> neutralize -d <db>`) caused
+  `unrecognized parameters: 'neutralize'` on Odoo 16+, where the
+  top-level option parser sees the unknown `neutralize` token first.
 
 ### Changed
 

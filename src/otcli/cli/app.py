@@ -188,6 +188,7 @@ def config_show_command(ctx: typer.Context) -> None:
     typer.echo(f'  odoo.odoo_bin_path     : {cli.odoo.odoo_bin_path or "(auto-detect)"}')
     if cli.odoo.install_mode != 'docker':
         typer.echo(f'  odoo.odoo_conf_path    : {cli.odoo.odoo_conf_path or "(none)"}')
+        typer.echo(f'  odoo.python_executable : {cli.odoo.python_executable or "(shebang)"}')
     typer.echo(f'  upgrade.target         : {cli.upgrade.target}')
     typer.echo(f'  upgrade.environment    : {cli.upgrade.environment}')
     typer.echo(f'  upgrade.code_subscript : {cli.upgrade.code_subscription}')

@@ -27,6 +27,7 @@ def _full_dict() -> dict:
             'container_name': 'odoo',
             'odoo_bin_path': '',
             'odoo_conf_path': '',
+            'python_executable': '',
         },
         'upgrade': {
             'target': '18.0',
@@ -193,6 +194,23 @@ def test_odoo_bin_path_round_trips():
 
     cfg2 = ClientConfig.from_dict(cfg.to_dict())
     assert cfg2.odoo.odoo_bin_path == '/custom/odoo-bin'
+
+
+def test_python_executable_defaults_empty():
+    raw = _full_dict()
+    raw['odoo'].pop('python_executable', None)
+    cfg = ClientConfig.from_dict(raw)
+    assert cfg.odoo.python_executable == ''
+
+
+def test_python_executable_round_trips():
+    raw = _full_dict()
+    raw['odoo']['python_executable'] = '/path/to/venv/bin/python3'
+    cfg = ClientConfig.from_dict(raw)
+    assert cfg.odoo.python_executable == '/path/to/venv/bin/python3'
+
+    cfg2 = ClientConfig.from_dict(cfg.to_dict())
+    assert cfg2.odoo.python_executable == '/path/to/venv/bin/python3'
 
 
 def test_constructor_helpers():

@@ -59,23 +59,31 @@ class Odoo:
 
     * ``docker``: ``container_name`` is the Odoo container; ``odoo_bin_path``
       is a path **inside** that container (empty means auto-detect).
-      ``odoo_conf_path`` is ignored (the container's image typically
-      embeds its own configuration).
+      ``odoo_conf_path`` and ``python_executable`` are ignored (the
+      container's image typically embeds its own configuration and
+      Python interpreter).
     * ``native``: Odoo is installed on the host (Debian package or
       similar). ``odoo_bin_path`` is an absolute path on the host
       (empty means ``which odoo-bin`` then ``/usr/bin/odoo-bin``).
       ``odoo_conf_path`` is optional; if set it is forwarded to
-      ``odoo-bin`` via ``-c <path>``. The Debian package usually picks
-      up ``/etc/odoo/odoo.conf`` automatically.
-    * ``source``: Odoo cloned from GitHub. Both ``odoo_bin_path`` and
-      ``odoo_conf_path`` are required; without ``-c`` the script cannot
-      reach Postgres.
+      ``odoo-bin`` via ``-c <path>``. ``python_executable`` is also
+      optional; setting it overrides the ``odoo-bin`` shebang and is
+      useful when Odoo's dependencies live in a venv.
+    * ``source``: Odoo cloned from GitHub. ``odoo_bin_path`` and
+      ``odoo_conf_path`` are both required (without ``-c`` the script
+      cannot reach Postgres). ``python_executable`` is **strongly
+      recommended** because the ``odoo-bin`` shebang
+      (``#!/usr/bin/env python3``) typically resolves to the system
+      Python, which lacks Odoo's runtime dependencies. Point this at
+      the Python in the venv where you ``pip install -r
+      requirements.txt`` (e.g. ``/path/to/venv/bin/python3``).
     """
 
     install_mode: str
     container_name: str = ''
     odoo_bin_path: str = ''
     odoo_conf_path: str = ''
+    python_executable: str = ''
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +197,7 @@ def _build_odoo(raw: dict[str, Any]) -> Odoo:
     container_name = raw.get('container_name', '')
     odoo_bin_path = raw.get('odoo_bin_path', '')
     odoo_conf_path = raw.get('odoo_conf_path', '')
+    python_executable = raw.get('python_executable', '')
 
     if install_mode == 'docker' and not container_name:
         raise ClientConfigError("odoo.container_name is required when install_mode='docker'")
@@ -196,6 +205,18 @@ def _build_odoo(raw: dict[str, Any]) -> Odoo:
         raise ClientConfigError(
             "odoo.odoo_bin_path is required when install_mode='source' (point to the absolute path of odoo-bin in your clone)"
         )
+    if install_mode == 'source' and not odoo_conf_path:
+        raise ClientConfigError(
+            "odoo.odoo_conf_path is required when install_mode='source' (odoo-bin needs -c <conf> to reach Postgres)"
+        )
+
+    return Odoo(
+        install_mode=install_mode,
+        container_name=container_name,
+        odoo_bin_path=odoo_bin_path,
+        odoo_conf_path=odoo_conf_path,
+        python_executable=python_executable,
+    )
     if install_mode == 'source' and not odoo_conf_path:
         raise ClientConfigError(
             "odoo.odoo_conf_path is required when install_mode='source' (odoo-bin needs -c <conf> to reach Postgres)"

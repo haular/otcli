@@ -164,6 +164,21 @@ class TestDockerMode:
         assert last_call_argv == ['/usr/bin/odoo-bin', 'neutralize', '-d', 'acme']
         assert '-c' not in last_call_argv
 
+    def test_docker_ignores_python_executable(self, client_dict: dict) -> None:
+        """Docker mode never prepends a host python interpreter:
+        the container has its own."""
+        client_dict['odoo']['odoo_bin_path'] = '/usr/bin/odoo-bin'
+        client_dict['odoo']['python_executable'] = '/host/venv/bin/python3'
+        cfg = ClientConfig.from_dict(client_dict)
+
+        with patch.object(neut, '_docker_exec') as mock_exec:
+            mock_exec.side_effect = [_proc(0), _proc(0)]
+            neut.neutralize_database(cfg)
+
+        last_call_argv = mock_exec.call_args_list[-1].args[1]
+        assert last_call_argv[0] == '/usr/bin/odoo-bin'
+        assert '/host/venv/bin/python3' not in last_call_argv
+
 
 # =========================================================================
 # install_mode='native'
@@ -272,6 +287,7 @@ class TestNativeMode:
         assert '-c' not in argv
 
     def test_native_with_conf_passes_minus_c(self, client_dict: dict) -> None:
+        """neutralize subcommand precedes -c (Odoo 16+ argv order)."""
         client_dict['odoo']['install_mode'] = 'native'
         client_dict['odoo']['container_name'] = ''
         client_dict['odoo']['odoo_bin_path'] = ''
@@ -287,12 +303,47 @@ class TestNativeMode:
         argv = mock_host.call_args.args[0]
         assert argv == [
             '/usr/bin/odoo-bin',
+            'neutralize',
             '-c',
             '/etc/odoo/custom.conf',
-            'neutralize',
             '-d',
             'acme',
         ]
+
+    def test_native_with_python_executable_prepends_interpreter(self, client_dict: dict, tmp_path: Path) -> None:
+        """Setting odoo.python_executable bypasses the odoo-bin shebang."""
+        venv_python = _make_executable(tmp_path / 'venv' / 'bin' / 'python3')
+        client_dict['odoo']['install_mode'] = 'native'
+        client_dict['odoo']['container_name'] = ''
+        client_dict['odoo']['odoo_bin_path'] = ''
+        client_dict['odoo']['python_executable'] = str(venv_python)
+        cfg = ClientConfig.from_dict(client_dict)
+
+        with (
+            patch.object(neut.shutil, 'which', return_value='/usr/bin/odoo-bin'),
+            patch.object(neut, '_host_exec', return_value=_proc(0)) as mock_host,
+        ):
+            neut.neutralize_database(cfg)
+
+        argv = mock_host.call_args.args[0]
+        # python_executable is prepended; odoo-bin becomes the first argv
+        # to that interpreter, NOT the first argv overall.
+        assert argv[0] == str(venv_python)
+        assert argv[1] == '/usr/bin/odoo-bin'
+        assert argv[-3:] == ['neutralize', '-d', 'acme']
+
+    def test_native_invalid_python_executable_raises(self, client_dict: dict, tmp_path: Path) -> None:
+        client_dict['odoo']['install_mode'] = 'native'
+        client_dict['odoo']['container_name'] = ''
+        client_dict['odoo']['odoo_bin_path'] = ''
+        client_dict['odoo']['python_executable'] = str(tmp_path / 'no-such-python')
+        cfg = ClientConfig.from_dict(client_dict)
+
+        with (
+            patch.object(neut.shutil, 'which', return_value='/usr/bin/odoo-bin'),
+            pytest.raises(NeutralizeError, match='python_executable'),
+        ):
+            neut.neutralize_database(cfg)
 
 
 # =========================================================================
@@ -318,8 +369,47 @@ class TestSourceMode:
             neut.neutralize_database(cfg)
 
         argv = mock_host.call_args.args[0]
-        # -c <conf> must precede 'neutralize -d <db>'
-        assert argv == [str(odoo_bin), '-c', odoo_conf, 'neutralize', '-d', 'acme']
+        # 'neutralize' is the subcommand and goes immediately after odoo-bin;
+        # '-c' is a per-subcommand option and follows.
+        assert argv == [str(odoo_bin), 'neutralize', '-c', odoo_conf, '-d', 'acme']
+
+    def test_python_executable_prepended_in_source_mode(self, client_dict: dict, tmp_path: Path) -> None:
+        """Source mode bypasses the odoo-bin shebang via odoo.python_executable.
+
+        Regression test for the ImportError surfaced by source installs
+        whose runtime deps live in a venv:
+            File "/.../odoo/_monkeypatches/codecs.py", line 5, in <module>
+                import bab....   # ModuleNotFoundError on system python
+        """
+        odoo_bin = _make_executable(tmp_path / 'odoo' / 'odoo-bin')
+        venv_python = _make_executable(tmp_path / 'venv' / 'bin' / 'python3')
+        odoo_conf = '/home/user/projects/acme/odoo.conf'
+        self._set_source(client_dict, odoo_bin=str(odoo_bin), odoo_conf=odoo_conf)
+        client_dict['odoo']['python_executable'] = str(venv_python)
+        cfg = ClientConfig.from_dict(client_dict)
+
+        with patch.object(neut, '_host_exec', return_value=_proc(0)) as mock_host:
+            neut.neutralize_database(cfg)
+
+        argv = mock_host.call_args.args[0]
+        assert argv == [
+            str(venv_python),
+            str(odoo_bin),
+            'neutralize',
+            '-c',
+            odoo_conf,
+            '-d',
+            'acme',
+        ]
+
+    def test_invalid_python_executable_raises(self, client_dict: dict, tmp_path: Path) -> None:
+        odoo_bin = _make_executable(tmp_path / 'odoo-bin')
+        self._set_source(client_dict, odoo_bin=str(odoo_bin))
+        client_dict['odoo']['python_executable'] = str(tmp_path / 'ghost-python')
+        cfg = ClientConfig.from_dict(client_dict)
+
+        with pytest.raises(NeutralizeError, match='python_executable'):
+            neut.neutralize_database(cfg)
 
     def test_missing_odoo_bin_path_rejected_by_schema(self, client_dict: dict) -> None:
         """When install_mode='source' and odoo_bin_path is empty,

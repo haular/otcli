@@ -87,6 +87,7 @@ def client_dict() -> dict:
             'container_name': 'odoo',
             'odoo_bin_path': '',
             'odoo_conf_path': '',
+            'python_executable': '',
         },
         'upgrade': {
             'target': '18.0',

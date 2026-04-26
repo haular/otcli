@@ -176,13 +176,50 @@ def _is_executable(path: Path) -> bool:
 # --- public API ----------------------------------------------------------
 
 
-def _build_neutralize_argv(odoo_bin: str, db_name: str, conf_path: str) -> list[str]:
-    """Build the argv for ``odoo-bin neutralize``, optionally with ``-c``."""
-    argv = [odoo_bin]
+def _build_neutralize_argv(
+    odoo_bin: str,
+    db_name: str,
+    conf_path: str,
+    python_executable: str = '',
+) -> list[str]:
+    """Build the argv for ``odoo-bin neutralize``.
+
+    Argument layout (Odoo 16+):
+
+        [<python_executable>] <odoo_bin> neutralize [-c <conf>] -d <db>
+
+    The ``neutralize`` subcommand MUST come immediately after
+    ``odoo-bin``: anything before it is parsed by the top-level option
+    parser, which doesn't know about ``neutralize`` and aborts with
+    ``unrecognized parameters``. Per-subcommand options (``-c``, ``-d``)
+    follow the subcommand.
+
+    When ``python_executable`` is provided, it is prepended so that the
+    interpreter is chosen explicitly instead of relying on ``odoo-bin``'s
+    shebang (``#!/usr/bin/env python3``). This is the typical fix for
+    source installs where Odoo's runtime dependencies live in a venv.
+    """
+    argv: list[str] = []
+    if python_executable:
+        argv.append(python_executable)
+    argv.append(odoo_bin)
+    argv.append('neutralize')
     if conf_path:
         argv.extend(['-c', conf_path])
-    argv.extend(['neutralize', '-d', db_name])
+    argv.extend(['-d', db_name])
     return argv
+
+
+def _validate_python_executable(path: str) -> None:
+    """Raise :class:`NeutralizeError` if ``path`` is set but unusable."""
+    if not path:
+        return
+    p = Path(path)
+    if not p.is_file() or not _is_executable(p):
+        raise NeutralizeError(
+            f'Configured odoo.python_executable={path!r} is not an '
+            f"executable file on the host. Update it with 'otcli config edit'."
+        )
 
 
 def neutralize_database(client: ClientConfig) -> None:
@@ -227,14 +264,26 @@ def neutralize_database(client: ClientConfig) -> None:
         rendered = f'docker exec {client.odoo.container_name} {shlex.join(argv)}'
     elif mode == 'native':
         odoo_bin = _resolve_native(client)
-        argv = _build_neutralize_argv(odoo_bin, db_name, conf_path=client.odoo.odoo_conf_path)
+        _validate_python_executable(client.odoo.python_executable)
+        argv = _build_neutralize_argv(
+            odoo_bin,
+            db_name,
+            conf_path=client.odoo.odoo_conf_path,
+            python_executable=client.odoo.python_executable,
+        )
         logger.info('Neutralizing database %s via host odoo-bin %s', db_name, odoo_bin)
         proc = _host_exec(argv)
         rendered = shlex.join(argv)
     elif mode == 'source':
         odoo_bin = _resolve_source(client)
+        _validate_python_executable(client.odoo.python_executable)
         # Schema validation guarantees odoo_conf_path is set in 'source'.
-        argv = _build_neutralize_argv(odoo_bin, db_name, conf_path=client.odoo.odoo_conf_path)
+        argv = _build_neutralize_argv(
+            odoo_bin,
+            db_name,
+            conf_path=client.odoo.odoo_conf_path,
+            python_executable=client.odoo.python_executable,
+        )
         logger.info('Neutralizing database %s via source odoo-bin %s', db_name, odoo_bin)
         proc = _host_exec(argv)
         rendered = shlex.join(argv)
