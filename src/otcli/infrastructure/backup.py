@@ -9,16 +9,18 @@ import os
 import shutil
 import tempfile
 import zipfile
+from pathlib import Path
 
 import typer
 
-from otcli.bootstrap import config
+from otcli.domain.client_config import ClientConfig
 from otcli.domain.exceptions import OdooCLIError
 from otcli.infrastructure.docker import (
     _copy_file_from_container,
     _exec_in_container,
     _get_container,
 )
+from otcli.paths import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +28,10 @@ MANIFEST_FILENAME = 'manifest.json'
 MANIFEST_VERSION = 1
 
 
-def _backup_database(output_path: str) -> str:
+def _backup_database(client: ClientConfig, output_path: str) -> str:
     """Dump the configured Odoo database into ``output_path/dump.sql``."""
-    db_name = config.db_name
-    container_name = config.db_container_name
+    db_name = client.database.db_name
+    container_name = client.docker.db_container
 
     backup_file = 'dump.sql'
     temp_path = f'/tmp/{backup_file}'
@@ -40,8 +42,6 @@ def _backup_database(output_path: str) -> str:
     container = _get_container(container_name)
 
     typer.echo('Executing pg_dump...')
-    # Write inside /tmp so the path is deterministic regardless of the
-    # container's working directory.
     _exec_in_container(
         container,
         f'pg_dump -U odoo --no-owner --clean --if-exists -d {db_name} -f {temp_path}',
@@ -69,7 +69,7 @@ def _iter_files(root: str):
             yield os.path.join(dirpath, name)
 
 
-def _copy_filestore(output_path: str) -> str:
+def _copy_filestore(client: ClientConfig, output_path: str) -> str:
     """Copy the configured Odoo client filestore into ``output_path/filestore``.
 
     Robustness guarantees:
@@ -81,26 +81,22 @@ def _copy_filestore(output_path: str) -> str:
         destination and raises :class:`OdooCLIError` if a significant fraction
         of files is missing (default tolerance: 0 missing).
     """
-    source_filestore_path = os.path.join(config.filestore_dir, config.technical_client_name)
+    source_filestore_path = os.path.join(client.filestore_dir, client.technical_name)
 
     if not os.path.isdir(source_filestore_path):
         raise OdooCLIError(
             f'Filestore source directory not found: {source_filestore_path}. '
-            f'Check filestore_dir and technical_client_name in the client config.'
+            f'Check filestore_dir and technical_name in the client config.'
         )
 
     typer.echo(f'Copying filestore from {source_filestore_path}...')
 
     filestore_dest_path = os.path.join(output_path, 'filestore')
-    # Ensure we start from a clean destination.
     if os.path.exists(filestore_dest_path):
         shutil.rmtree(filestore_dest_path)
     os.makedirs(filestore_dest_path, exist_ok=True)
 
     errors: list[tuple[str, str, str]] = []
-
-    def _on_copy_error(src_path, dst_path, exc_info):  # pragma: no cover - thin wrapper
-        errors.append((str(src_path), str(dst_path), repr(exc_info[1])))
 
     try:
         shutil.copytree(
@@ -111,8 +107,6 @@ def _copy_filestore(output_path: str) -> str:
             dirs_exist_ok=True,
         )
     except shutil.Error as err:
-        # ``shutil.copytree`` aggregates per-file errors into a single
-        # ``shutil.Error``. Record them but continue.
         for entry in err.args[0] if err.args else []:
             if isinstance(entry, tuple) and len(entry) == 3:
                 errors.append((str(entry[0]), str(entry[1]), str(entry[2])))
@@ -123,8 +117,6 @@ def _copy_filestore(output_path: str) -> str:
             len(errors),
         )
 
-    # Post-copy verification. We count regular files only (symlinks are
-    # preserved as-is by copytree with symlinks=True).
     src_count = sum(1 for _ in _iter_files(source_filestore_path))
     dst_count = sum(1 for _ in _iter_files(filestore_dest_path))
 
@@ -133,7 +125,6 @@ def _copy_filestore(output_path: str) -> str:
             f'Filestore source {source_filestore_path} is empty; refusing to create an empty filestore backup.'
         )
 
-    # Allow a tiny tolerance for live-write races (default: none).
     tolerance = int(os.environ.get('OTCLI_FILESTORE_MISSING_TOLERANCE', '0'))
     missing = src_count - dst_count
     if missing > tolerance:
@@ -183,7 +174,6 @@ def _compress_backup(backup_name: str, source_path: str, output_dir: str) -> str
 
     zip_path = os.path.join(output_dir, f'{backup_name}.zip')
 
-    # Determine whether filestore is present (dir exists and non-empty).
     filestore_dir = os.path.join(source_path, 'filestore')
     with_filestore = os.path.isdir(filestore_dir) and any(_iter_files(filestore_dir))
     manifest = _build_manifest(
@@ -192,15 +182,12 @@ def _compress_backup(backup_name: str, source_path: str, output_dir: str) -> str
         with_filestore=with_filestore,
     )
 
-    # Write the manifest into the staging dir so it's included naturally and
-    # its filename is stable for verification.
     manifest_path = os.path.join(source_path, MANIFEST_FILENAME)
     with open(manifest_path, 'w', encoding='utf-8') as fh:
         json.dump(manifest, fh, indent=2, ensure_ascii=False)
 
     with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
         for dirpath, dirnames, filenames in os.walk(source_path):
-            # Deterministic order improves reproducibility and manifest parity.
             dirnames.sort()
             for name in sorted(filenames):
                 abs_path = os.path.join(dirpath, name)
@@ -214,26 +201,26 @@ def _compress_backup(backup_name: str, source_path: str, output_dir: str) -> str
     return zip_path
 
 
-def backup_odoo(with_filestore: bool) -> None:
-    """Full backup pipeline: DB dump + optional filestore + manifest + zip."""
-    db_name = config.db_name
-    output_path = config.client_backup_dir
-    # Include minute+second to avoid same-day collisions.
+def backup_odoo(client: ClientConfig, settings: Settings, *, with_filestore: bool) -> Path:
+    """Full backup pipeline: DB dump + optional filestore + manifest + zip.
+
+    Returns the absolute path to the produced zip archive.
+    """
+    db_name = client.database.db_name
+    output_path = str(settings.backups_dir)
     stamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     backup_name = f'{db_name}_{stamp}'
 
     os.makedirs(output_path, exist_ok=True)
 
-    # Unique staging directory to allow concurrent backups and avoid stale
-    # residue from previous failed runs.
     temp_dir = tempfile.mkdtemp(prefix='otcli_backup_', dir=output_path)
 
     zip_file: str | None = None
     try:
-        _backup_database(temp_dir)
+        _backup_database(client, temp_dir)
 
         if with_filestore:
-            _copy_filestore(temp_dir)
+            _copy_filestore(client, temp_dir)
         else:
             os.makedirs(os.path.join(temp_dir, 'filestore'), exist_ok=True)
             typer.echo('Created an empty filestore directory as requested.')
@@ -242,7 +229,8 @@ def backup_odoo(with_filestore: bool) -> None:
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-    if not zip_file:  # pragma: no cover - guarded above by try/raise
+    if not zip_file:  # pragma: no cover
         raise OdooCLIError('Backup failed: no archive was produced.')
 
     typer.echo(f'Odoo backup process completed successfully. Backup saved to: {zip_file}')
+    return Path(zip_file)

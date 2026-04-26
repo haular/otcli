@@ -13,9 +13,9 @@ from otcli.services.config_edit import CONFIG_FIELDS_ORDER, DESCRIPTIONS
 
 
 def test_environment_is_part_of_interactive_flow() -> None:
-    assert 'environment' in CONFIG_FIELDS_ORDER, (
-        "'environment' must be in CONFIG_FIELDS_ORDER so the interactive " 'editor asks the user for it.'
-    )
+    assert (
+        'environment' in CONFIG_FIELDS_ORDER
+    ), "'environment' must be in CONFIG_FIELDS_ORDER so the interactive editor asks the user for it."
 
 
 def test_environment_has_a_description() -> None:

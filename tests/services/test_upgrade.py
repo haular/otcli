@@ -17,12 +17,12 @@ from unittest.mock import patch
 
 import pytest
 
+from otcli.domain.client_config import ClientConfig
 from otcli.domain.exceptions import OdooCLIError
 from otcli.infrastructure.upgrade import run_upgrade
 
 
 def _empty_zip(path: Path) -> None:
-    # Minimal valid empty zip (just an EOCD record).
     path.write_bytes(b'PK\x05\x06' + b'\x00' * 18)
 
 
@@ -46,31 +46,21 @@ def _fake_run_factory():
     return _fake_run, state
 
 
-def test_run_upgrade_does_not_change_cwd(tmp_path: Path, fresh_config) -> None:
-    fresh_config.code_subscription = 'CODE'
-    fresh_config.upgrade_target = '18.0'
-    fresh_config.environment = 'test'
-    fresh_config.directory_path = str(tmp_path / 'unused')
-
+def test_run_upgrade_does_not_change_cwd(tmp_path: Path, client: ClientConfig) -> None:
     backup = tmp_path / 'backup.zip'
     _empty_zip(backup)
     cwd_before = os.getcwd()
 
     fake_run, _ = _fake_run_factory()
     with patch('otcli.infrastructure.upgrade.run', side_effect=fake_run):
-        result = run_upgrade(str(backup))
+        result = run_upgrade(client, str(backup))
 
     assert os.getcwd() == cwd_before, 'run_upgrade must not chdir the caller.'
-    # Result is moved next to the input backup.
     assert Path(result) == tmp_path / 'upgraded.zip'
     assert (tmp_path / 'upgraded.zip').is_file()
 
 
-def test_run_upgrade_restores_cwd_on_failure(tmp_path: Path, fresh_config) -> None:
-    fresh_config.code_subscription = 'CODE'
-    fresh_config.upgrade_target = '18.0'
-    fresh_config.environment = 'test'
-
+def test_run_upgrade_restores_cwd_on_failure(tmp_path: Path, client: ClientConfig) -> None:
     backup = tmp_path / 'backup.zip'
     _empty_zip(backup)
     cwd_before = os.getcwd()
@@ -79,15 +69,11 @@ def test_run_upgrade_restores_cwd_on_failure(tmp_path: Path, fresh_config) -> No
         raise RuntimeError('upstream blew up')
 
     with patch('otcli.infrastructure.upgrade.run', side_effect=_boom), pytest.raises(RuntimeError):
-        run_upgrade(str(backup))
+        run_upgrade(client, str(backup))
 
     assert os.getcwd() == cwd_before, 'cwd must be restored even on failure.'
 
 
-def test_run_upgrade_rejects_missing_backup(tmp_path: Path, fresh_config) -> None:
-    fresh_config.code_subscription = 'CODE'
-    fresh_config.upgrade_target = '18.0'
-    fresh_config.environment = 'test'
-
+def test_run_upgrade_rejects_missing_backup(tmp_path: Path, client: ClientConfig) -> None:
     with pytest.raises(OdooCLIError, match='Backup file not found'):
-        run_upgrade(str(tmp_path / 'nope.zip'))
+        run_upgrade(client, str(tmp_path / 'nope.zip'))

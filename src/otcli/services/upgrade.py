@@ -7,12 +7,13 @@ import os
 
 import typer
 
+from otcli.domain.client_config import ClientConfig
 from otcli.infrastructure.upgrade import check_existing_upgrade, run_upgrade
 
 logger = logging.getLogger(__name__)
 
 
-def upgrade_database(backup_file: str) -> str:
+def upgrade_database(client: ClientConfig, backup_file: str) -> str:
     """Upgrade ``backup_file`` via the upstream Odoo upgrade service.
 
     If a previously-produced ``upgraded.zip`` is present next to the
@@ -24,4 +25,4 @@ def upgrade_database(backup_file: str) -> str:
         existing = os.path.join(directory, 'upgraded.zip')
         typer.echo(f'Reusing existing upgraded file: {existing}')
         return existing
-    return run_upgrade(backup_file)
+    return run_upgrade(client, backup_file)

@@ -144,7 +144,7 @@ class ClientConfig:
         environment = upgrade_raw.get('environment', '')
         if environment and environment not in _ALLOWED_ENVIRONMENTS:
             raise ClientConfigError(
-                f'upgrade.environment must be one of ' f'{sorted(_ALLOWED_ENVIRONMENTS)}; got {environment!r}'
+                f'upgrade.environment must be one of {sorted(_ALLOWED_ENVIRONMENTS)}; got {environment!r}'
             )
 
         db = Database(

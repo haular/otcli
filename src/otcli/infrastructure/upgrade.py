@@ -17,7 +17,7 @@ from pathlib import Path
 
 import typer
 
-from otcli.bootstrap import config
+from otcli.domain.client_config import ClientConfig
 from otcli.domain.exceptions import OdooCLIError
 from otcli.domain.shell import run
 
@@ -37,7 +37,7 @@ def _download_upgrade_script(target_dir: Path) -> Path:
     return script_path
 
 
-def run_upgrade(backup_file: str) -> str:
+def run_upgrade(client: ClientConfig, backup_file: str) -> str:
     """Run the upstream upgrade script against ``backup_file``.
 
     Returns the absolute path to the produced ``upgraded.zip`` archive.
@@ -46,9 +46,9 @@ def run_upgrade(backup_file: str) -> str:
     up automatically; ``upgraded.zip`` is moved next to the input
     ``backup_file`` so the caller can find it deterministically.
     """
-    code_subscription = config.code_subscription
-    target_version = config.upgrade_target
-    environment = config.environment
+    code_subscription = client.upgrade.code_subscription
+    target_version = client.upgrade.target
+    environment = client.upgrade.environment
 
     backup_path = Path(backup_file).resolve()
     if not backup_path.is_file():
@@ -83,7 +83,7 @@ def run_upgrade(backup_file: str) -> str:
             produced = td / 'upgraded.zip'
             if not produced.is_file():
                 raise OdooCLIError(
-                    f'Upgrade finished but {produced} was not created. ' 'Check the upstream script output above.'
+                    f'Upgrade finished but {produced} was not created. Check the upstream script output above.'
                 )
 
             # Move the result next to the input backup so callers find

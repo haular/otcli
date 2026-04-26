@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from otcli.domain.client_config import ClientConfig
 from otcli.infrastructure import backup
 
 
@@ -22,48 +23,47 @@ def _write(p: Path, content: bytes = b'x') -> Path:
 
 
 @pytest.fixture()
-def configured_client(tmp_path: Path, fresh_config, monkeypatch: pytest.MonkeyPatch) -> dict:
-    """Prepare a fake Odoo filestore layout and wire config to point at it."""
+def configured_client(tmp_path: Path, client_dict: dict) -> dict:
+    """Prepare a fake Odoo filestore layout and a matching ClientConfig."""
     filestore_root = tmp_path / 'odoo_data' / 'filestore'
     client_name = 'my_client'
     src = filestore_root / client_name
     src.mkdir(parents=True)
 
-    # Populate a realistic tree.
     for i in range(5):
         _write(src / 'aa' / f'file_{i}.bin', b'payload' * (i + 1))
     for i in range(3):
         _write(src / 'bb' / f'file_{i}.bin', b'payload' * (i + 1))
 
-    fresh_config.update(
-        {
-            'filestore_dir': str(filestore_root),
-            'technical_client_name': client_name,
-            'db_name': client_name,
-        }
-    )
-    return {'src': src, 'root': filestore_root, 'client_name': client_name}
+    client_dict['client']['filestore_dir'] = str(filestore_root)
+    client_dict['client']['technical_name'] = client_name
+    client_dict['database']['db_name'] = client_name
+
+    return {
+        'src': src,
+        'root': filestore_root,
+        'client_name': client_name,
+        'client': ClientConfig.from_dict(client_dict),
+    }
 
 
 class TestCopyFilestoreRobustness:
     def test_copies_all_regular_files(self, tmp_path: Path, configured_client: dict) -> None:
         dest_root = tmp_path / 'out'
         dest_root.mkdir()
-        backup._copy_filestore(str(dest_root))
+        backup._copy_filestore(configured_client['client'], str(dest_root))
         copied = {p.relative_to(dest_root / 'filestore') for p in (dest_root / 'filestore').rglob('*') if p.is_file()}
         expected = {p.relative_to(configured_client['src']) for p in configured_client['src'].rglob('*') if p.is_file()}
         assert copied == expected
 
     def test_dangling_symlinks_do_not_abort(self, tmp_path: Path, configured_client: dict) -> None:
         src = configured_client['src']
-        # Dangling symlink — target does not exist.
         (src / 'dangling').symlink_to(src / 'does_not_exist')
 
         dest_root = tmp_path / 'out'
         dest_root.mkdir()
-        backup._copy_filestore(str(dest_root))
+        backup._copy_filestore(configured_client['client'], str(dest_root))
 
-        # Regular files still copied.
         assert (dest_root / 'filestore' / 'aa' / 'file_0.bin').exists()
 
     def test_post_copy_verification_detects_missing_files(
@@ -76,7 +76,6 @@ class TestCopyFilestoreRobustness:
         real_copytree = backup.shutil.copytree
 
         def broken_copytree(src, dst, *args, **kwargs):
-            # Copy into dst but then wipe most files to simulate silent loss.
             result = real_copytree(src, dst, *args, **kwargs)
             for p in list(Path(dst).rglob('*')):
                 if p.is_file():
@@ -88,19 +87,17 @@ class TestCopyFilestoreRobustness:
         dest_root = tmp_path / 'out'
         dest_root.mkdir()
         with pytest.raises(OdooCLIError):
-            backup._copy_filestore(str(dest_root))
+            backup._copy_filestore(configured_client['client'], str(dest_root))
 
-    def test_missing_source_raises(self, tmp_path: Path, fresh_config) -> None:
+    def test_missing_source_raises(self, tmp_path: Path, client_dict: dict) -> None:
         from otcli.domain.exceptions import OdooCLIError
 
-        fresh_config.update(
-            {
-                'filestore_dir': str(tmp_path / 'does_not_exist'),
-                'technical_client_name': 'nope',
-                'db_name': 'nope',
-            }
-        )
+        client_dict['client']['filestore_dir'] = str(tmp_path / 'does_not_exist')
+        client_dict['client']['technical_name'] = 'nope'
+        client_dict['database']['db_name'] = 'nope'
+        cfg = ClientConfig.from_dict(client_dict)
+
         dest = tmp_path / 'out'
         dest.mkdir()
         with pytest.raises(OdooCLIError):
-            backup._copy_filestore(str(dest))
+            backup._copy_filestore(cfg, str(dest))

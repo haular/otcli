@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -6,7 +8,7 @@ import stat
 import tempfile
 import zipfile
 
-from otcli.bootstrap import config
+from otcli.domain.client_config import ClientConfig
 from otcli.domain.exceptions import OdooCLIError
 from otcli.infrastructure.docker import _copy_file_to_container, _exec_in_container, _get_container
 
@@ -191,7 +193,7 @@ def _verify_filestore_after_restore(extracted_filestore: str, final_path: str) -
         )
 
 
-def restore_database_from_container(backup_file: str) -> None:
+def restore_database_from_container(client: ClientConfig, backup_file: str) -> None:
     """Restore a database dump and its filestore into the configured target.
 
     Contract:
@@ -202,9 +204,9 @@ def restore_database_from_container(backup_file: str) -> None:
       * ``psql`` is run with ``ON_ERROR_STOP=1`` so SQL errors surface as
         non-zero exit codes rather than producing a half-restored DB.
     """
-    target_db_container_name = config.db_container_name
-    target_db_name = config.db_name
-    target_filestore_dir = config.filestore_dir
+    target_db_container_name = client.docker.db_container
+    target_db_name = client.database.db_name
+    target_filestore_dir = client.filestore_dir
 
     _validate_backup_zip(backup_file)
 

@@ -69,7 +69,7 @@ def test_load_missing_raises(tmp_path: Path) -> None:
 
 def test_load_legacy_flat_raises(tmp_path: Path) -> None:
     """Pre-1.0 TOMLs (flat keys like technical_client_name) must fail loudly."""
-    legacy = 'technical_client_name = "old"\n' 'db_name = "old"\n' 'master_pwd = "p"\n'
+    legacy = 'technical_client_name = "old"\ndb_name = "old"\nmaster_pwd = "p"\n'
     (tmp_path / 'old.toml').write_text(legacy)
     with pytest.raises(ClientConfigError, match='legacy'):
         load('old', tmp_path)

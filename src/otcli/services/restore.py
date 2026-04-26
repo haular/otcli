@@ -1,12 +1,14 @@
 """Orchestrates the interactive restore flow for Odoo backups."""
 
+from __future__ import annotations
+
 import glob
 import logging
 import os
 
 import typer
 
-from otcli.bootstrap import config
+from otcli.domain.client_config import ClientConfig
 from otcli.domain.exceptions import OdooCLIError
 from otcli.infrastructure.odoo_http import (
     check_connection,
@@ -15,17 +17,14 @@ from otcli.infrastructure.odoo_http import (
     restore_database,
 )
 from otcli.infrastructure.restore import restore_database_from_container
+from otcli.paths import Settings
 
 logger = logging.getLogger(__name__)
 
 
-def _select_backup_file() -> str | None:
-    """Prompt the user to pick a ``.zip`` from ``config.client_backup_dir``.
-
-    Returns the selected absolute path or ``None`` if the directory contains
-    no backups.
-    """
-    backup_dir = config.client_backup_dir
+def _select_backup_file(settings: Settings) -> str | None:
+    """Prompt the user to pick a ``.zip`` from the backups directory."""
+    backup_dir = str(settings.backups_dir)
     zip_files = sorted(glob.glob(os.path.join(backup_dir, '*.zip')))
 
     if not zip_files:
@@ -48,14 +47,14 @@ def _select_backup_file() -> str | None:
         typer.echo('Invalid selection. Please enter a valid number.')
 
 
-def _restore_via_curl(backup_file: str) -> None:
+def _restore_via_curl(client: ClientConfig, backup_file: str) -> None:
     """Restore using Odoo's HTTP /web/database/restore endpoint."""
-    if not check_connection():
+    if not check_connection(client):
         logger.error('Odoo server is not running. Please start the server and try again.')
         raise OdooCLIError('Odoo server is not running. Please start the server and try again.')
 
-    db_list = get_database_list()
-    odoo_db_name = config.db_name
+    db_list = get_database_list(client)
+    odoo_db_name = client.database.db_name
 
     if odoo_db_name in db_list:
         if not typer.confirm(
@@ -63,9 +62,9 @@ def _restore_via_curl(backup_file: str) -> None:
             default=True,
         ):
             return
-        drop_database()
+        drop_database(client)
 
-    restore_database(backup_file)
+    restore_database(client, backup_file)
 
 
 def _prompt_restore_method() -> str:
@@ -82,14 +81,14 @@ def _prompt_restore_method() -> str:
         typer.echo("Invalid restoration method. Please choose 'C' for CURL or 'D' for Docker container.")
 
 
-def restore_odoo_database() -> None:
+def restore_odoo_database(client: ClientConfig, settings: Settings) -> None:
     """Interactive entry point used by the ``restore`` CLI command."""
-    selected_backup_file = _select_backup_file()
+    selected_backup_file = _select_backup_file(settings)
     if selected_backup_file is None:
         return
 
     method = _prompt_restore_method()
     if method == 'd':
-        restore_database_from_container(selected_backup_file)
+        restore_database_from_container(client, selected_backup_file)
     else:
-        _restore_via_curl(selected_backup_file)
+        _restore_via_curl(client, selected_backup_file)

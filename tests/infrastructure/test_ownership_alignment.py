@@ -117,11 +117,13 @@ class TestAlignOwnership:
 
 
 class TestRestoreAlignsOwnership:
-    def test_restore_invokes_align_ownership(self, tmp_path: Path, fresh_config) -> None:
+    def test_restore_invokes_align_ownership(self, tmp_path: Path, client_dict: dict) -> None:
         """After a successful Docker restore, the final filestore path is
-        passed through _align_ownership along with config.filestore_dir."""
+        passed through _align_ownership along with client.filestore_dir."""
         import zipfile
         from unittest.mock import MagicMock
+
+        from otcli.domain.client_config import ClientConfig
 
         backup = tmp_path / 'backup.zip'
         with zipfile.ZipFile(backup, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -134,13 +136,12 @@ class TestRestoreAlignsOwnership:
 
         filestore_root = tmp_path / 'target_odoo' / 'filestore'
         filestore_root.mkdir(parents=True)
-        fresh_config.update(
-            {
-                'db_container_name': 'odoo-db',
-                'db_name': 'target_db',
-                'filestore_dir': str(filestore_root),
-            }
-        )
+
+        client_dict['client']['filestore_dir'] = str(filestore_root)
+        client_dict['client']['technical_name'] = 'target_db'
+        client_dict['database']['db_name'] = 'target_db'
+        client_dict['docker']['db_container'] = 'odoo-db'
+        client = ClientConfig.from_dict(client_dict)
 
         align_calls: list[tuple[str, str]] = []
 
@@ -157,7 +158,7 @@ class TestRestoreAlignsOwnership:
             ),
             patch.object(restore_mod, '_align_ownership', side_effect=fake_align),
         ):
-            restore_mod.restore_database_from_container(str(backup))
+            restore_mod.restore_database_from_container(client, str(backup))
 
         assert align_calls, 'restore did not call _align_ownership'
         path, reference = align_calls[0]

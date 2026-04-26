@@ -1,15 +1,31 @@
+"""Interactive client configuration editor.
+
+This module presents prompts to the user, validates input, and returns a
+typed :class:`ClientConfig`. The CLI layer is responsible for actually
+persisting the result via
+:func:`otcli.infrastructure.client_config_io.save`.
+"""
+
+from __future__ import annotations
+
 import logging
 import os
 
 import typer
 
-from otcli.bootstrap import config
-from otcli.infrastructure.client_config import save_client_config
+from otcli.domain.client_config import (
+    ClientConfig,
+    CommandHash,
+    CommandShell,
+    Database,
+    Docker,
+    Upgrade,
+)
 from otcli.services._prompts import _handle_docker_container_selection, _prompt_for_value
 
 logger = logging.getLogger(__name__)
 
-# --- Descripciones de los campos de configuración ---
+# --- Field descriptions shown to the user --------------------------------
 DESCRIPTIONS = {
     'environment': "Entorno objetivo para el servicio de actualización de Odoo: 'test' o 'production'.",
     'url': 'URL utilizada para restaurar la base de datos a través de una petición CURL (ej. http://localhost:8069).',
@@ -28,7 +44,6 @@ DESCRIPTIONS = {
     ),
 }
 
-# --- Orden de los campos para el flujo secuencial ---
 CONFIG_FIELDS_ORDER = [
     'environment',
     'technical_client_name',
@@ -42,51 +57,98 @@ CONFIG_FIELDS_ORDER = [
     'repo_path',
 ]
 
-# Allowed values for the ``environment`` field, validated interactively.
 _ALLOWED_ENVIRONMENTS = ('test', 'production')
 
 
-def edit_configuration_interactive() -> None:
+def _existing_value(existing: ClientConfig | None, key: str) -> str:
+    """Return the current value of ``key`` from ``existing``, or empty string."""
+    if existing is None:
+        return ''
+    return _CONFIG_KEY_GETTERS.get(key, lambda _c: '')(existing)
+
+
+_CONFIG_KEY_GETTERS: dict[str, callable] = {
+    'technical_client_name': lambda c: c.technical_name,
+    'environment': lambda c: c.upgrade.environment,
+    'url': lambda c: c.database.url,
+    'master_pwd': lambda c: c.database.master_pwd,
+    'filestore_dir': lambda c: c.filestore_dir,
+    'upgrade_target': lambda c: c.upgrade.target,
+    'code_subscription': lambda c: c.upgrade.code_subscription,
+    'db_container_name': lambda c: c.docker.db_container,
+    'odoo_container_name': lambda c: c.docker.odoo_container,
+    'repo_path': lambda c: c.upgrade.repo_path,
+}
+
+
+def edit_configuration_interactive(existing: ClientConfig | None = None) -> ClientConfig:
+    """Walk the user through every configurable field and return a ClientConfig.
+
+    Pass ``existing`` to pre-fill prompts when editing a known client.
+    Pass ``None`` (the default) when registering a brand-new client.
+    """
     typer.echo('\n--- Iniciando Edición de Configuración ---')
 
+    answers: dict[str, str] = {}
+
     for key in CONFIG_FIELDS_ORDER:
-        current_value = config.get(key, '')
+        current_value = _existing_value(existing, key)
         description = DESCRIPTIONS[key]
 
         if key == 'environment':
             while True:
-                new_value = _prompt_for_value(key, current_value, description)
-                if new_value in _ALLOWED_ENVIRONMENTS:
-                    config.environment = new_value
+                value = _prompt_for_value(key, current_value, description)
+                if value in _ALLOWED_ENVIRONMENTS:
+                    answers[key] = value
                     break
-                typer.echo(f"Valor inválido. Introduce uno de: {', '.join(_ALLOWED_ENVIRONMENTS)}.")
-        elif key == 'technical_client_name':
-            new_value = _prompt_for_value(key, current_value, description)
-            config.technical_client_name = new_value
-            config.db_name = new_value  # Asignar db_name automáticamente
-            config.client_name = new_value
+                typer.echo(f'Valor inválido. Introduce uno de: {", ".join(_ALLOWED_ENVIRONMENTS)}.')
         elif key == 'db_container_name':
             db_container_name = _handle_docker_container_selection(current_value, description)
-            if db_container_name is not None:
-                config.db_container_name = db_container_name
-            else:
+            if db_container_name is None:
                 typer.echo('Selección de contenedor Docker cancelada.')
-                continue  # Skip to next field if selection was cancelled
+                continue
+            answers[key] = db_container_name
         elif key == 'filestore_dir':
             base_filestore_path = _prompt_for_value(key, current_value, description)
-            config.filestore_dir = os.path.join(base_filestore_path, 'filestore')
+            answers[key] = os.path.join(base_filestore_path, 'filestore')
         else:
-            new_value = _prompt_for_value(key, current_value, description)
-            config[key] = new_value
+            answers[key] = _prompt_for_value(key, current_value, description)
 
-    # After all individual fields, offer command management
-    manage_commands_section()
+    # Existing commands are preserved when re-editing.
+    commands: list[CommandHash | CommandShell] = list(existing.commands) if existing else []
+    commands = _manage_commands_section(commands)
 
-    _save_current_config()
-    typer.echo('\n--- Edición de Configuración Completada y Guardada ---')
+    cfg = ClientConfig(
+        technical_name=answers['technical_client_name'],
+        filestore_dir=answers['filestore_dir'],
+        database=Database(
+            url=answers.get('url', ''),
+            master_pwd=answers.get('master_pwd', ''),
+            db_name=answers['technical_client_name'],
+        ),
+        docker=Docker(
+            db_container=answers.get('db_container_name', ''),
+            odoo_container=answers.get('odoo_container_name', ''),
+        ),
+        upgrade=Upgrade(
+            target=answers.get('upgrade_target', ''),
+            code_subscription=answers.get('code_subscription', ''),
+            environment=answers.get('environment', ''),
+            repo_path=answers.get('repo_path', ''),
+        ),
+        commands=tuple(commands),
+    )
+
+    typer.echo('\n--- Edición de Configuración Completada ---')
+    return cfg
 
 
-def manage_commands_section() -> None:
+# --- Commands sub-menu ---------------------------------------------------
+
+
+def _manage_commands_section(
+    commands: list[CommandHash | CommandShell],
+) -> list[CommandHash | CommandShell]:
     typer.echo('\n--- Gestionando Comandos ---')
     while True:
         typer.echo('\n--- Menú de Comandos ---')
@@ -98,102 +160,60 @@ def manage_commands_section() -> None:
         choice = typer.prompt('Selecciona una opción', type=int)
 
         if choice == 1:
-            list_commands()
+            _list_commands(commands)
         elif choice == 2:
-            add_command()
+            _add_command(commands)
         elif choice == 3:
-            delete_command()
+            _delete_command(commands)
         elif choice == 0:
-            return
+            return commands
         else:
             typer.echo('Opción no válida. Por favor, intenta de nuevo.')
 
 
-def list_commands() -> None:
+def _list_commands(commands: list[CommandHash | CommandShell]) -> None:
     typer.echo('\n--- Comandos Configurados ---')
-    if not config.get('commands'):
+    if not commands:
         typer.echo('No hay comandos configurados.')
         return
+    for i, cmd in enumerate(commands, 1):
+        if isinstance(cmd, CommandHash):
+            typer.echo(f'{i}. Tipo: Git Hash, Valor: {cmd.value}')
+        else:
+            typer.echo(f'{i}. Tipo: Shell Command, Valor: {" ".join(cmd.value)}')
 
-    for i, cmd_obj in enumerate(config.commands, 1):
-        if 'hash' in cmd_obj:
-            typer.echo(f'{i}. Tipo: Git Hash, Valor: {cmd_obj["hash"]}')
-        elif 'command' in cmd_obj:
-            typer.echo(f'{i}. Tipo: Shell Command, Valor: {" ".join(cmd_obj["command"])}')
 
-
-def add_command() -> None:
+def _add_command(commands: list[CommandHash | CommandShell]) -> None:
     typer.echo('\n--- Añadir Nuevo Comando ---')
     typer.echo('Selecciona el tipo de comando:')
     typer.echo('1. Git Hash')
     typer.echo('2. Shell Command')
     command_type_choice = typer.prompt('Tipo de comando', type=int)
 
-    new_command_obj = {}
     if command_type_choice == 1:
-        new_command_obj['hash'] = typer.prompt('Introduce el hash de Git')
+        value = typer.prompt('Introduce el hash de Git')
+        commands.append(CommandHash(value=value))
     elif command_type_choice == 2:
         command_str = typer.prompt("Introduce el comando de shell (ej. 'docker ps -a')")
-        new_command_obj['command'] = command_str.split()
+        commands.append(CommandShell(value=command_str.split()))
     else:
         typer.echo('Tipo de comando no válido.')
         return
-
-    if not config.get('commands'):
-        config.commands = []
-    config.commands.append(new_command_obj)
-    _save_current_config()
     typer.echo('Comando añadido exitosamente.')
 
 
-def delete_command() -> None:
+def _delete_command(commands: list[CommandHash | CommandShell]) -> None:
     typer.echo('\n--- Eliminar Comando ---')
-    if not config.get('commands'):
+    if not commands:
         typer.echo('No hay comandos para eliminar.')
         return
-
-    list_commands()  # Mostrar comandos para que el usuario elija
+    _list_commands(commands)
     try:
         index_to_delete = typer.prompt('Introduce el número del comando a eliminar', type=int) - 1
-        if 0 <= index_to_delete < len(config.commands):
-            deleted_command = config.commands.pop(index_to_delete)
-            _save_current_config()
-            typer.echo(f'Comando eliminado: {deleted_command}')
+        if 0 <= index_to_delete < len(commands):
+            deleted = commands.pop(index_to_delete)
+            typer.echo(f'Comando eliminado: {deleted}')
         else:
             typer.echo('Número de comando no válido.')
     except ValueError:
         typer.echo('Entrada no válida. Por favor, introduce un número.')
-
-
-# Keys that legitimately belong to a client TOML. Anything else in the
-# runtime ``config`` DotDict (paths, the in-memory client name, …) is
-# derived state and MUST NOT be persisted, otherwise it overrides the
-# values computed from the user's environment on the next load.
-_PERSISTED_KEYS: frozenset[str] = frozenset(
-    {
-        'environment',
-        'technical_client_name',
-        'db_name',
-        'url',
-        'upgrade_target',
-        'master_pwd',
-        'filestore_dir',
-        'code_subscription',
-        'db_container_name',
-        'odoo_container_name',
-        'repo_path',
-        'commands',
-    }
-)
-
-
-def _save_current_config() -> None:
-    current_client_name = config.client_name
-    if not current_client_name:
-        typer.echo('Error: No se pudo determinar el cliente actual para guardar la configuración.')
-        return
-
-    full = config.to_dict()
-    config_to_save = {k: v for k, v in full.items() if k in _PERSISTED_KEYS}
-    save_client_config(current_client_name, config.clients_config_dir, config_to_save)
-    typer.echo('Configuración guardada.')
