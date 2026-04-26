@@ -4,6 +4,11 @@ from typing import Any
 import toml
 import typer
 
+# Keys that some legacy TOMLs (pre 1.0) accidentally persisted from the
+# runtime config. Strip them on load so they cannot override the freshly
+# computed runtime paths via ``config.update(client_config)``.
+_LEGACY_RUNTIME_KEYS: frozenset[str] = frozenset({'client_name', 'clients_config_dir', 'client_backup_dir', 'directory_path'})
+
 
 def get_clients(clients_config_dir: str) -> list[str]:
     """
@@ -20,12 +25,17 @@ def get_clients(clients_config_dir: str) -> list[str]:
 def load_client_config(client_name: str, clients_config_dir: str) -> dict[str, Any]:
     """
     Loads the configuration for a specific client from its TOML file.
+
+    Legacy runtime keys persisted by pre-1.0 versions of the tool are
+    stripped silently so they cannot override the runtime paths derived
+    from the user's environment.
     """
     config_path = os.path.join(clients_config_dir, f'{client_name}.toml')
     if not os.path.exists(config_path):
         raise ValueError(f'Client configuration file not found: {config_path}')
     with open(config_path) as f:
-        return toml.load(f)
+        raw = toml.load(f)
+    return {k: v for k, v in raw.items() if k not in _LEGACY_RUNTIME_KEYS}
 
 
 def save_client_config(client_name: str, clients_config_dir: str, config_data: dict[str, Any]) -> None:
