@@ -4,6 +4,10 @@ This module presents prompts to the user, validates input, and returns a
 typed :class:`ClientConfig`. The CLI layer is responsible for actually
 persisting the result via
 :func:`otcli.infrastructure.client_config_io.save`.
+
+The wizard branches on the chosen ``odoo.install_mode``: for ``docker``
+it asks for the Odoo container; for ``native`` and ``source`` it skips
+the container question and asks for an absolute path to ``odoo-bin``.
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ from otcli.domain.client_config import (
     ClientConfig,
     Database,
     Docker,
+    Odoo,
     Upgrade,
 )
 from otcli.services._prompts import _handle_docker_container_selection, _prompt_for_value
@@ -35,29 +40,31 @@ DESCRIPTIONS = {
     ),
     'code_subscription': 'Código de suscripción de Odoo para el servicio de actualización.',
     'db_container_name': 'Nombre del contenedor Docker de la base de datos (PostgreSQL).',
+    'odoo_install_mode': (
+        "Cómo está instalado Odoo: 'docker' (en un contenedor), 'native' "
+        "(instalado en el host, ej. paquete Debian), o 'source' (clonado de "
+        'GitHub en una ruta del host).'
+    ),
     'odoo_container_name': 'Nombre del contenedor Docker de la instancia de Odoo.',
-    'odoo_bin_path': (
-        "Ruta absoluta a 'odoo-bin' dentro del contenedor de Odoo. Déjalo vacío para "
-        'auto-detectar (probará which/odoo-bin, /usr/bin/odoo-bin, /mnt/odoo/odoo-bin, '
-        '/opt/odoo/odoo-bin). Solo necesitas configurarlo si la auto-detección falla.'
+    'odoo_bin_path_docker': (
+        "Ruta absoluta a 'odoo-bin' DENTRO del contenedor de Odoo. Déjalo vacío "
+        'para auto-detectar (probará which/odoo-bin, /usr/bin/odoo-bin, '
+        '/mnt/odoo/odoo-bin, /opt/odoo/odoo-bin).'
+    ),
+    'odoo_bin_path_native': (
+        "Ruta absoluta a 'odoo-bin' EN EL HOST. Déjalo vacío para auto-detectar "
+        '(probará `which odoo-bin` y luego /usr/bin/odoo-bin).'
+    ),
+    'odoo_bin_path_source': (
+        "Ruta absoluta a 'odoo-bin' DENTRO DEL CLON DE ODOO en el host (ej. /home/user/odoo/odoo-bin). Obligatorio."
     ),
     'technical_client_name': (
         'Nombre técnico del cliente. Se utilizará como nombre de la base de datos y para el directorio del filestore.'
     ),
 }
 
-CONFIG_FIELDS_ORDER = [
-    'environment',
-    'technical_client_name',
-    'upgrade_target',
-    'filestore_dir',
-    'code_subscription',
-    'db_container_name',
-    'odoo_container_name',
-    'odoo_bin_path',
-]
-
 _ALLOWED_ENVIRONMENTS = ('test', 'production')
+_ALLOWED_INSTALL_MODES = ('docker', 'native', 'source')
 
 
 def _existing_value(existing: ClientConfig | None, key: str) -> str:
@@ -74,8 +81,9 @@ _CONFIG_KEY_GETTERS: dict[str, Callable[[ClientConfig], str]] = {
     'upgrade_target': lambda c: c.upgrade.target,
     'code_subscription': lambda c: c.upgrade.code_subscription,
     'db_container_name': lambda c: c.docker.db_container,
-    'odoo_container_name': lambda c: c.docker.odoo_container,
-    'odoo_bin_path': lambda c: c.docker.odoo_bin_path,
+    'odoo_install_mode': lambda c: c.odoo.install_mode,
+    'odoo_container_name': lambda c: c.odoo.container_name,
+    'odoo_bin_path': lambda c: c.odoo.odoo_bin_path,
 }
 
 
@@ -87,53 +95,116 @@ def edit_configuration_interactive(existing: ClientConfig | None = None) -> Clie
     """
     typer.echo('\n--- Iniciando Edición de Configuración ---')
 
-    answers: dict[str, str] = {}
+    # --- Common fields (all modes share these) -----------------------
+    environment = _ask_environment(existing)
+    technical_client_name = _ask_text('technical_client_name', existing)
+    upgrade_target = _ask_text('upgrade_target', existing)
+    filestore_dir = _ask_filestore_dir(existing)
+    code_subscription = _ask_text('code_subscription', existing)
+    db_container_name = _ask_db_container(existing)
 
-    for key in CONFIG_FIELDS_ORDER:
-        current_value = _existing_value(existing, key)
-        description = DESCRIPTIONS[key]
+    # --- Odoo install mode (drives the next branch) ------------------
+    install_mode = _ask_install_mode(existing)
 
-        if key == 'environment':
-            choice = prompts.pick_one(description, list(_ALLOWED_ENVIRONMENTS))
-            answers[key] = choice if choice else current_value
-        elif key in ('db_container_name', 'odoo_container_name'):
-            role = 'database (PostgreSQL)' if key == 'db_container_name' else 'Odoo'
-            container = _handle_docker_container_selection(current_value, description, role=role)
-            if container is None:
-                typer.echo('Selección de contenedor Docker cancelada.')
-                continue
-            answers[key] = container
-        elif key == 'filestore_dir':
-            # The persisted ``filestore_dir`` is the parent directory that
-            # contains a per-client subdirectory (the backup/restore code
-            # joins ``client.technical_name`` to it). When editing an
-            # existing config we already store the post-join path; for
-            # new entries we append "/filestore" to whatever the user
-            # types so the wizard can stay short.
-            raw = _prompt_for_value(key, current_value, description)
-            if existing is None and not raw.rstrip('/').endswith('filestore'):
-                # New entry: append ``/filestore`` if the user gave the
-                # parent dir (e.g. /mnt/odoo -> /mnt/odoo/filestore).
-                raw = os.path.join(raw, 'filestore')
-            answers[key] = raw
-        else:
-            answers[key] = _prompt_for_value(key, current_value, description)
+    odoo_container_name = ''
+    odoo_bin_path = ''
+    if install_mode == 'docker':
+        odoo_container_name = _ask_odoo_container(existing)
+        odoo_bin_path = _ask_odoo_bin_path(existing, mode='docker')
+    elif install_mode == 'native':
+        odoo_bin_path = _ask_odoo_bin_path(existing, mode='native')
+    elif install_mode == 'source':
+        odoo_bin_path = _ask_odoo_bin_path(existing, mode='source')
 
     cfg = ClientConfig(
-        technical_name=answers['technical_client_name'],
-        filestore_dir=answers['filestore_dir'],
-        database=Database(db_name=answers['technical_client_name']),
-        docker=Docker(
-            db_container=answers.get('db_container_name', ''),
-            odoo_container=answers.get('odoo_container_name', ''),
-            odoo_bin_path=answers.get('odoo_bin_path', ''),
+        technical_name=technical_client_name,
+        filestore_dir=filestore_dir,
+        database=Database(db_name=technical_client_name),
+        docker=Docker(db_container=db_container_name),
+        odoo=Odoo(
+            install_mode=install_mode,
+            container_name=odoo_container_name,
+            odoo_bin_path=odoo_bin_path,
         ),
         upgrade=Upgrade(
-            target=answers.get('upgrade_target', ''),
-            code_subscription=answers.get('code_subscription', ''),
-            environment=answers.get('environment', ''),
+            target=upgrade_target,
+            code_subscription=code_subscription,
+            environment=environment,
         ),
     )
 
     typer.echo('\n--- Edición de Configuración Completada ---')
     return cfg
+
+
+# --- Prompt helpers -------------------------------------------------------
+
+
+def _ask_environment(existing: ClientConfig | None) -> str:
+    current = _existing_value(existing, 'environment')
+    choice = prompts.pick_one(DESCRIPTIONS['environment'], list(_ALLOWED_ENVIRONMENTS))
+    return choice if choice else current
+
+
+def _ask_install_mode(existing: ClientConfig | None) -> str:
+    current = _existing_value(existing, 'odoo_install_mode')
+    choice = prompts.pick_one(DESCRIPTIONS['odoo_install_mode'], list(_ALLOWED_INSTALL_MODES))
+    return choice if choice else current
+
+
+def _ask_text(key: str, existing: ClientConfig | None) -> str:
+    return _prompt_for_value(key, _existing_value(existing, key), DESCRIPTIONS[key])
+
+
+def _ask_filestore_dir(existing: ClientConfig | None) -> str:
+    current = _existing_value(existing, 'filestore_dir')
+    raw = _prompt_for_value('filestore_dir', current, DESCRIPTIONS['filestore_dir'])
+    if existing is None and not raw.rstrip('/').endswith('filestore'):
+        raw = os.path.join(raw, 'filestore')
+    return raw
+
+
+def _ask_db_container(existing: ClientConfig | None) -> str:
+    current = _existing_value(existing, 'db_container_name')
+    container = _handle_docker_container_selection(
+        current,
+        DESCRIPTIONS['db_container_name'],
+        role='database (PostgreSQL)',
+    )
+    if container is None:
+        typer.echo('Selección de contenedor Docker cancelada; se conserva el valor actual.')
+        return current
+    return container
+
+
+def _ask_odoo_container(existing: ClientConfig | None) -> str:
+    current = _existing_value(existing, 'odoo_container_name')
+    container = _handle_docker_container_selection(
+        current,
+        DESCRIPTIONS['odoo_container_name'],
+        role='Odoo',
+    )
+    if container is None:
+        typer.echo('Selección de contenedor Docker cancelada; se conserva el valor actual.')
+        return current
+    return container
+
+
+def _ask_odoo_bin_path(existing: ClientConfig | None, *, mode: str) -> str:
+    """Ask for ``odoo-bin`` path with mode-specific guidance.
+
+    For ``docker`` and ``native`` an empty answer is fine (auto-detect);
+    for ``source`` we re-prompt until the user provides a non-empty
+    absolute path.
+    """
+    current = _existing_value(existing, 'odoo_bin_path')
+    description = DESCRIPTIONS[f'odoo_bin_path_{mode}']
+
+    if mode == 'source':
+        while True:
+            value = _prompt_for_value('odoo_bin_path', current, description)
+            if value:
+                return value
+            typer.echo("La ruta es obligatoria cuando install_mode='source'.")
+
+    return _prompt_for_value('odoo_bin_path', current, description)

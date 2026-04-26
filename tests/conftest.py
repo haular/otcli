@@ -18,6 +18,7 @@ from otcli.domain.client_config import (
     ClientConfig,
     Database,
     Docker,
+    Odoo,
     Upgrade,
 )
 from otcli.paths import Settings
@@ -72,13 +73,18 @@ def settings(tmp_path: Path) -> Settings:
 
 @pytest.fixture()
 def client_dict() -> dict:
-    """A complete, valid raw dict suitable for ``ClientConfig.from_dict``."""
+    """A complete, valid raw dict suitable for ``ClientConfig.from_dict``.
+
+    Defaults to the docker install mode; tests that need native or
+    source can override by mutating the returned dict.
+    """
     return {
         'client': {'technical_name': 'acme', 'filestore_dir': '/var/lib/odoo/filestore'},
         'database': {'db_name': 'acme'},
-        'docker': {
-            'db_container': 'db',
-            'odoo_container': 'odoo',
+        'docker': {'db_container': 'db'},
+        'odoo': {
+            'install_mode': 'docker',
+            'container_name': 'odoo',
             'odoo_bin_path': '',
         },
         'upgrade': {
@@ -99,6 +105,7 @@ __all__ = [
     'ClientConfig',
     'Database',
     'Docker',
+    'Odoo',
     'Upgrade',
     '_LegacyConfigShim',
 ]

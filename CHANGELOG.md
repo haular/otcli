@@ -27,22 +27,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added (post-restore neutralize)
 
 - After a successful restore in a `test` environment, otcli now runs
-  `odoo-bin neutralize -d <db>` automatically inside the Odoo container
-  to disable outbound emails, scheduled actions, and external
-  integrations. Production environments are never neutralized.
+  `odoo-bin neutralize -d <db>` automatically against the configured
+  Odoo install to disable outbound emails, scheduled actions, and
+  external integrations. Production environments are never neutralized.
 - Failures of the neutralize step are logged at WARNING and reported
   on stderr, but the restore command exits 0 (the database is still in
   place; the user can re-run neutralize manually).
-- New `docker.odoo_bin_path` field on the client TOML lets the user
-  override the auto-detected location of `odoo-bin` if the container
-  layout is unusual. Auto-detect order: `which odoo-bin` →
-  `/usr/bin/odoo-bin` → `/mnt/odoo/odoo-bin` → `/opt/odoo/odoo-bin`.
+
+### Added (multi-mode Odoo install support)
+
+- New `[odoo]` section with `install_mode` discriminator. Three modes:
+  - `docker`: Odoo runs in a container. Uses `docker exec` and
+    auto-detects `odoo-bin` inside the container (`which`,
+    `/usr/bin/odoo-bin`, `/mnt/odoo/odoo-bin`, `/opt/odoo/odoo-bin`).
+  - `native`: Odoo installed on the host (Debian package or similar).
+    Auto-detects via host `which odoo-bin` then `/usr/bin/odoo-bin`.
+  - `source`: Odoo cloned from GitHub. Requires explicit
+    `odoo.odoo_bin_path` pointing at the script in the clone.
+- The wizard branches on `install_mode`: docker asks for the
+  container; native and source skip the container question and ask
+  for an absolute path with mode-specific guidance.
 
 ### Changed
 
-- `odoo_container_name` is now picked from a list of running Docker
-  containers (same UX as `db_container_name`), with a graceful
-  fallback to manual entry when no containers are detected.
+- `[docker]` section trimmed to just `db_container` (PostgreSQL only).
+- `odoo_container` moved to `odoo.container_name` (only relevant when
+  `install_mode='docker'`).
+- `odoo_bin_path` moved to `odoo.odoo_bin_path`.
+- Container picker (questionary) is reused for both `db_container` and
+  `odoo.container_name`, with graceful fallback to manual entry when
+  no Docker containers are running.
 
 ### Changed (BREAKING)
 

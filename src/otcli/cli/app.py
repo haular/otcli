@@ -177,15 +177,18 @@ def config_delete_command(
 def config_show_command(ctx: typer.Context) -> None:
     """Print the current client's configuration."""
     actx = get_context(ctx)
-    typer.echo(f'Client: {actx.client.technical_name}')
-    typer.echo(f'  filestore_dir         : {actx.client.filestore_dir}')
-    typer.echo(f'  database.db_name      : {actx.client.database.db_name}')
-    typer.echo(f'  docker.db_container   : {actx.client.docker.db_container}')
-    typer.echo(f'  docker.odoo_container : {actx.client.docker.odoo_container}')
-    typer.echo(f'  docker.odoo_bin_path  : {actx.client.docker.odoo_bin_path or "(auto-detect)"}')
-    typer.echo(f'  upgrade.target        : {actx.client.upgrade.target}')
-    typer.echo(f'  upgrade.environment   : {actx.client.upgrade.environment}')
-    typer.echo(f'  upgrade.code_subscript: {actx.client.upgrade.code_subscription}')
+    cli = actx.client
+    typer.echo(f'Client: {cli.technical_name}')
+    typer.echo(f'  filestore_dir          : {cli.filestore_dir}')
+    typer.echo(f'  database.db_name       : {cli.database.db_name}')
+    typer.echo(f'  docker.db_container    : {cli.docker.db_container}')
+    typer.echo(f'  odoo.install_mode      : {cli.odoo.install_mode}')
+    if cli.odoo.install_mode == 'docker':
+        typer.echo(f'  odoo.container_name    : {cli.odoo.container_name}')
+    typer.echo(f'  odoo.odoo_bin_path     : {cli.odoo.odoo_bin_path or "(auto-detect)"}')
+    typer.echo(f'  upgrade.target         : {cli.upgrade.target}')
+    typer.echo(f'  upgrade.environment    : {cli.upgrade.environment}')
+    typer.echo(f'  upgrade.code_subscript : {cli.upgrade.code_subscription}')
 
 
 # --- 'backups' sub-app ---------------------------------------------------

@@ -20,9 +20,10 @@ def _full_dict() -> dict:
     return {
         'client': {'technical_name': 'acme', 'filestore_dir': '/x'},
         'database': {'db_name': 'acme'},
-        'docker': {
-            'db_container': 'db',
-            'odoo_container': 'odoo',
+        'docker': {'db_container': 'db'},
+        'odoo': {
+            'install_mode': 'docker',
+            'container_name': 'odoo',
             'odoo_bin_path': '',
         },
         'upgrade': {

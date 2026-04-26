@@ -1,6 +1,6 @@
 """Typed, validated client configuration for otcli.
 
-The configuration is grouped into four required sections:
+The configuration is grouped into five sections (one optional):
 
     [client]
     technical_name = "acme"
@@ -10,9 +10,12 @@ The configuration is grouped into four required sections:
     db_name = "acme"          # optional; defaults to client.technical_name
 
     [docker]
-    db_container   = "db"
-    odoo_container = "odoo"
-    odoo_bin_path  = ""       # optional; empty means auto-detect
+    db_container = "db"       # PostgreSQL container
+
+    [odoo]
+    install_mode    = "docker"   # 'docker' | 'native' | 'source'
+    container_name  = "odoo"     # required when install_mode='docker', else ignored
+    odoo_bin_path   = ""         # path to odoo-bin; semantics depend on install_mode
 
     [upgrade]
     target            = "18.0"
@@ -33,7 +36,8 @@ from typing import Any
 from otcli.domain.exceptions import ClientConfigError
 
 _ALLOWED_ENVIRONMENTS = frozenset({'test', 'production'})
-_ALLOWED_TOP_LEVEL_SECTIONS = frozenset({'client', 'database', 'docker', 'upgrade'})
+_ALLOWED_INSTALL_MODES = frozenset({'docker', 'native', 'source'})
+_ALLOWED_TOP_LEVEL_SECTIONS = frozenset({'client', 'database', 'docker', 'odoo', 'upgrade'})
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,8 +48,28 @@ class Database:
 @dataclass(frozen=True, slots=True)
 class Docker:
     db_container: str
-    odoo_container: str
-    odoo_bin_path: str = ''  # empty means: auto-detect inside the container
+
+
+@dataclass(frozen=True, slots=True)
+class Odoo:
+    """Where and how to invoke ``odoo-bin``.
+
+    The ``install_mode`` discriminator determines how the other fields
+    are interpreted:
+
+    * ``docker``: ``container_name`` is the Odoo container; ``odoo_bin_path``
+      is a path **inside** that container (empty means auto-detect).
+    * ``native``: Odoo is installed on the host (Debian package or
+      similar). ``odoo_bin_path`` is an absolute path on the host
+      (empty means ``which odoo-bin`` then ``/usr/bin/odoo-bin``).
+    * ``source``: Odoo cloned from GitHub. ``odoo_bin_path`` is the
+      absolute path to the ``odoo-bin`` script in the clone (required;
+      no auto-detect).
+    """
+
+    install_mode: str
+    container_name: str = ''
+    odoo_bin_path: str = ''
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,67 +91,31 @@ class ClientConfig:
     filestore_dir: str
     database: Database
     docker: Docker
+    odoo: Odoo
     upgrade: Upgrade
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> ClientConfig:
         """Validate and build a :class:`ClientConfig` from a ``dict``."""
-        unknown_top = set(raw.keys()) - _ALLOWED_TOP_LEVEL_SECTIONS
-        if unknown_top:
-            raise ClientConfigError(
-                f'Unrecognised top-level keys {sorted(unknown_top)}. This may '
-                f'be a legacy pre-1.0 client TOML; please reconfigure with '
-                f"`otcli interactive` (option 'Editar Configuración'). "
-                f'See README \u2192 "Upgrading from pre-1.0 installations".'
-            )
+        _reject_legacy_top_level(raw)
 
-        try:
-            client = raw['client']
-        except KeyError as err:
-            raise ClientConfigError(f'Missing required section: {err.args[0]}') from err
-        try:
-            docker_raw = raw['docker']
-        except KeyError as err:
-            raise ClientConfigError(f'Missing required section: {err.args[0]}') from err
-        try:
-            upgrade_raw = raw['upgrade']
-        except KeyError as err:
-            raise ClientConfigError(f'Missing required section: {err.args[0]}') from err
+        client = _require_section(raw, 'client')
+        docker_raw = _require_section(raw, 'docker')
+        odoo_raw = _require_section(raw, 'odoo')
+        upgrade_raw = _require_section(raw, 'upgrade')
+        database_raw = raw.get('database', {})  # optional
 
-        # ``database`` is now optional: its only field (db_name) defaults to
-        # client.technical_name. Treat a missing section as an empty dict.
-        database_raw = raw.get('database', {})
-
-        try:
-            technical_name = client['technical_name']
-            filestore_dir = client['filestore_dir']
-        except KeyError as err:
-            raise ClientConfigError(f'client.{err.args[0]} is required') from err
-
-        environment = upgrade_raw.get('environment', '')
-        if environment and environment not in _ALLOWED_ENVIRONMENTS:
-            raise ClientConfigError(
-                f'upgrade.environment must be one of {sorted(_ALLOWED_ENVIRONMENTS)}; got {environment!r}'
-            )
-
-        db = Database(db_name=database_raw.get('db_name') or technical_name)
-        dk = Docker(
-            db_container=docker_raw.get('db_container', ''),
-            odoo_container=docker_raw.get('odoo_container', ''),
-            odoo_bin_path=docker_raw.get('odoo_bin_path', ''),
-        )
-        up = Upgrade(
-            target=upgrade_raw.get('target', ''),
-            code_subscription=upgrade_raw.get('code_subscription', ''),
-            environment=environment,
-        )
+        technical_name, filestore_dir = _client_fields(client)
+        upgrade = _build_upgrade(upgrade_raw)
+        odoo = _build_odoo(odoo_raw)
 
         return cls(
             technical_name=technical_name,
             filestore_dir=filestore_dir,
-            database=db,
-            docker=dk,
-            upgrade=up,
+            database=Database(db_name=database_raw.get('db_name') or technical_name),
+            docker=Docker(db_container=docker_raw.get('db_container', '')),
+            odoo=odoo,
+            upgrade=upgrade,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -141,5 +129,69 @@ class ClientConfig:
                 'db_name': self.database.db_name or self.technical_name,
             },
             'docker': asdict(self.docker),
+            'odoo': asdict(self.odoo),
             'upgrade': asdict(self.upgrade),
         }
+
+
+# --- Private validation helpers ------------------------------------------
+
+
+def _reject_legacy_top_level(raw: dict[str, Any]) -> None:
+    unknown = set(raw.keys()) - _ALLOWED_TOP_LEVEL_SECTIONS
+    if unknown:
+        raise ClientConfigError(
+            f'Unrecognised top-level keys {sorted(unknown)}. This may be a '
+            f'legacy pre-1.0 client TOML; please reconfigure with `otcli '
+            f"interactive` (option 'Editar Configuración'). "
+            f'See README \u2192 "Upgrading from pre-1.0 installations".'
+        )
+
+
+def _require_section(raw: dict[str, Any], name: str) -> dict[str, Any]:
+    try:
+        return raw[name]
+    except KeyError as err:
+        raise ClientConfigError(f'Missing required section: {name}') from err
+
+
+def _client_fields(client: dict[str, Any]) -> tuple[str, str]:
+    try:
+        return client['technical_name'], client['filestore_dir']
+    except KeyError as err:
+        raise ClientConfigError(f'client.{err.args[0]} is required') from err
+
+
+def _build_upgrade(raw: dict[str, Any]) -> Upgrade:
+    environment = raw.get('environment', '')
+    if environment and environment not in _ALLOWED_ENVIRONMENTS:
+        raise ClientConfigError(f'upgrade.environment must be one of {sorted(_ALLOWED_ENVIRONMENTS)}; got {environment!r}')
+    return Upgrade(
+        target=raw.get('target', ''),
+        code_subscription=raw.get('code_subscription', ''),
+        environment=environment,
+    )
+
+
+def _build_odoo(raw: dict[str, Any]) -> Odoo:
+    install_mode = raw.get('install_mode', '')
+    if not install_mode:
+        raise ClientConfigError('odoo.install_mode is required')
+    if install_mode not in _ALLOWED_INSTALL_MODES:
+        raise ClientConfigError(f'odoo.install_mode must be one of {sorted(_ALLOWED_INSTALL_MODES)}; got {install_mode!r}')
+
+    container_name = raw.get('container_name', '')
+    odoo_bin_path = raw.get('odoo_bin_path', '')
+
+    if install_mode == 'docker' and not container_name:
+        raise ClientConfigError("odoo.container_name is required when install_mode='docker'")
+    if install_mode == 'source' and not odoo_bin_path:
+        raise ClientConfigError(
+            "odoo.odoo_bin_path is required when install_mode='source' (point to the absolute path of odoo-bin in your clone)"
+        )
+
+    return Odoo(
+        install_mode=install_mode,
+        container_name=container_name,
+        odoo_bin_path=odoo_bin_path,
+    )
