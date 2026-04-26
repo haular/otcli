@@ -1,5 +1,17 @@
+"""Low-level prompt helpers for the configuration editor.
+
+These wrap the user-facing typer prompts and the questionary-based
+container picker. The legacy ``_prompt_for_value`` is still in use for
+plain text fields (it knows how to keep the previous value when the
+user declines to overwrite).
+"""
+
+from __future__ import annotations
+
 import typer
 
+from otcli.cli import prompts
+from otcli.domain.exceptions import OdooCLIError
 from otcli.infrastructure.docker import list_running_containers
 
 
@@ -22,42 +34,52 @@ def _prompt_for_value(
     return typer.prompt(prompt_message, default=current_value if current_value else '')
 
 
-def _handle_docker_container_selection(current_value: str, description: str) -> str | None:
+def _handle_docker_container_selection(
+    current_value: str,
+    description: str,
+    role: str = 'database',
+) -> str | None:
+    """Pick one of the running Docker containers, or type a name manually.
+
+    Args:
+        current_value: The previously-configured container name (used as
+            the default when the user types a name manually).
+        description: Field description shown to the user before the prompt.
+        role: Free-form label inserted into prompt text so the user knows
+            which container they're picking ('database', 'Odoo', ...).
+
+    Returns:
+        The selected container name, or ``None`` if the user cancelled.
+    """
     typer.echo(f'\nDescripción: {description}')
 
-    db_container_name = None
-    while True:
-        running_containers = list_running_containers()
-
-        if not running_containers:
-            typer.echo('No se encontraron contenedores Docker en ejecución.')
-            db_container_name = typer.prompt(
-                "Introduce el nombre del contenedor de la base de datos manualmente (o 'q' para cancelar)",
-                default=current_value,
-            )
-            if db_container_name.lower() == 'q':
-                return None
-            break
-        typer.echo('\nContenedores Docker en ejecución:')
-        for i, container_name in enumerate(running_containers, 1):
-            typer.echo(f'{i}. {container_name}')
-
-        container_choice = typer.prompt(
-            "Selecciona el número del contenedor de la base de datos o introduce el nombre (o 'q' para cancelar)",
-            type=str,
+    running = list_running_containers()
+    if not running:
+        typer.echo('No running Docker containers detected.')
+        manual = typer.prompt(
+            f"Type the {role} container name manually (or 'q' to cancel)",
             default=current_value,
         )
-        if container_choice.lower() == 'q':
+        if manual.lower() == 'q':
             return None
+        return manual
 
-        if container_choice.isdigit():
-            index = int(container_choice) - 1
-            if 0 <= index < len(running_containers):
-                db_container_name = running_containers[index]
-                break
-            typer.echo('Número de contenedor no válido. Se usará el valor ingresado.')
-            db_container_name = container_choice
-        else:
-            db_container_name = container_choice
-            break
-    return db_container_name
+    # Show the current value in the choices list so the user can keep it
+    # easily even if the running set differs from what was configured.
+    choices = list(running)
+    if current_value and current_value not in choices:
+        choices.append(f'{current_value}  (configured, not currently running)')
+
+    try:
+        selected = prompts.pick_one(
+            f'Select the {role} container',
+            choices,
+        )
+    except OdooCLIError:
+        return None
+
+    if selected is None:
+        return None
+
+    # Strip the annotation we added for the configured-but-not-running entry.
+    return selected.split('  (', 1)[0]

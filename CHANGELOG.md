@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Removed (BREAKING)
 
+- **Trim configuration surface.** The HTTP-based restore path is gone
+  entirely (`infrastructure/odoo_http.py`, `_restore_via_curl`,
+  `_prompt_restore_method`). The `[[commands]]` section,
+  `database.url`, `database.master_pwd`, and `upgrade.repo_path`
+  fields are removed. Pre-1.0 TOMLs that still use them are rejected
+  at load time with a clear `ClientConfigError`.
 - Drop the `docker` Python SDK runtime dependency. The infrastructure
   layer now talks to Docker via `subprocess` calls to the `docker` CLI
   binary (which is already required to run otcli). This trims about a
@@ -17,6 +23,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   binary on `$PATH` (a constraint that already held in practice).
 - Drop the `toml` package; reads now use stdlib `tomllib` and writes
   use `tomli-w`. `toml` was unmaintained since 2021.
+
+### Added (post-restore neutralize)
+
+- After a successful restore in a `test` environment, otcli now runs
+  `odoo-bin neutralize -d <db>` automatically inside the Odoo container
+  to disable outbound emails, scheduled actions, and external
+  integrations. Production environments are never neutralized.
+- Failures of the neutralize step are logged at WARNING and reported
+  on stderr, but the restore command exits 0 (the database is still in
+  place; the user can re-run neutralize manually).
+- New `docker.odoo_bin_path` field on the client TOML lets the user
+  override the auto-detected location of `odoo-bin` if the container
+  layout is unusual. Auto-detect order: `which odoo-bin` →
+  `/usr/bin/odoo-bin` → `/mnt/odoo/odoo-bin` → `/opt/odoo/odoo-bin`.
+
+### Changed
+
+- `odoo_container_name` is now picked from a list of running Docker
+  containers (same UX as `db_container_name`), with a graceful
+  fallback to manual entry when no containers are detected.
 
 ### Changed (BREAKING)
 

@@ -97,7 +97,8 @@ def edit_configuration_interactive(existing: ClientConfig | None = None) -> Clie
             choice = prompts.pick_one(description, list(_ALLOWED_ENVIRONMENTS))
             answers[key] = choice if choice else current_value
         elif key in ('db_container_name', 'odoo_container_name'):
-            container = _handle_docker_container_selection(current_value, description)
+            role = 'database (PostgreSQL)' if key == 'db_container_name' else 'Odoo'
+            container = _handle_docker_container_selection(current_value, description, role=role)
             if container is None:
                 typer.echo('Selección de contenedor Docker cancelada.')
                 continue
