@@ -28,6 +28,6 @@ def test_importing_otcli_does_not_touch_home(monkeypatch, tmp_path: Path) -> Non
     importlib.import_module('otcli.paths')
 
     config_dir = fake_home / '.otcli_config'
-    assert (
-        not config_dir.exists()
-    ), f'Importing otcli created {config_dir} \u2014 this is a regression. No I/O is allowed at import time.'
+    assert not config_dir.exists(), (
+        f'Importing otcli created {config_dir} \u2014 this is a regression. No I/O is allowed at import time.'
+    )
