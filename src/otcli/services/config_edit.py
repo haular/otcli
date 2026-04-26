@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 # --- Descripciones de los campos de configuración ---
 DESCRIPTIONS = {
+    'environment': "Entorno objetivo para el servicio de actualización de Odoo: 'test' o 'production'.",
     'url': 'URL utilizada para restaurar la base de datos a través de una petición CURL (ej. http://localhost:8069).',
     'upgrade_target': "Define el objetivo para la actualización de la base de datos (ej. '18.0').",
     'master_pwd': 'Contraseña maestra de Odoo para operaciones de base de datos.',
@@ -25,11 +26,11 @@ DESCRIPTIONS = {
     'technical_client_name': (
         'Nombre técnico del cliente. Se utilizará como nombre de la base de datos y para el directorio del filestore.'
     ),
-    'linked_production_client': 'Nombre del cliente de producción vinculado (solo para entornos de prueba).',
 }
 
 # --- Orden de los campos para el flujo secuencial ---
 CONFIG_FIELDS_ORDER = [
+    'environment',
     'technical_client_name',
     'url',
     'upgrade_target',
@@ -41,6 +42,9 @@ CONFIG_FIELDS_ORDER = [
     'repo_path',
 ]
 
+# Allowed values for the ``environment`` field, validated interactively.
+_ALLOWED_ENVIRONMENTS = ('test', 'production')
+
 
 def edit_configuration_interactive() -> None:
     typer.echo('\n--- Iniciando Edición de Configuración ---')
@@ -49,7 +53,14 @@ def edit_configuration_interactive() -> None:
         current_value = config.get(key, '')
         description = DESCRIPTIONS[key]
 
-        if key == 'technical_client_name':
+        if key == 'environment':
+            while True:
+                new_value = _prompt_for_value(key, current_value, description)
+                if new_value in _ALLOWED_ENVIRONMENTS:
+                    config.environment = new_value
+                    break
+                typer.echo(f"Valor inválido. Introduce uno de: {', '.join(_ALLOWED_ENVIRONMENTS)}.")
+        elif key == 'technical_client_name':
             new_value = _prompt_for_value(key, current_value, description)
             config.technical_client_name = new_value
             config.db_name = new_value  # Asignar db_name automáticamente
