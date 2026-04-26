@@ -154,12 +154,35 @@ def delete_command() -> None:
         typer.echo('Entrada no válida. Por favor, introduce un número.')
 
 
+# Keys that legitimately belong to a client TOML. Anything else in the
+# runtime ``config`` DotDict (paths, the in-memory client name, …) is
+# derived state and MUST NOT be persisted, otherwise it overrides the
+# values computed from the user's environment on the next load.
+_PERSISTED_KEYS: frozenset[str] = frozenset(
+    {
+        'environment',
+        'technical_client_name',
+        'db_name',
+        'url',
+        'upgrade_target',
+        'master_pwd',
+        'filestore_dir',
+        'code_subscription',
+        'db_container_name',
+        'odoo_container_name',
+        'repo_path',
+        'commands',
+    }
+)
+
+
 def _save_current_config() -> None:
     current_client_name = config.client_name
     if not current_client_name:
         typer.echo('Error: No se pudo determinar el cliente actual para guardar la configuración.')
         return
 
-    config_to_save = config.to_dict()
+    full = config.to_dict()
+    config_to_save = {k: v for k, v in full.items() if k in _PERSISTED_KEYS}
     save_client_config(current_client_name, config.clients_config_dir, config_to_save)
     typer.echo('Configuración guardada.')
