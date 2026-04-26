@@ -1,7 +1,7 @@
 # otcli — Odoo Tasks CLI
 
 A small command-line tool that automates **backup**, **restore** and **upgrade**
-of Odoo databases running in Docker, including the host-side FileStore.
+of Odoo databases running in Docker, including the host-side filestore.
 
 > Status: alpha. Tested against Odoo 16+ with a containerised PostgreSQL.
 
@@ -53,18 +53,19 @@ otcli interactive           # menu-driven flow
 ```
 
 On the first invocation, `otcli` asks you to register a client and writes
-`~/.odoo_task_cli_config/clientes/<client>.toml`. Backups are stored in
-`~/.odoo_task_cli_config/backups/`.
+`~/.otcli_config/clientes/<client>.toml`. Backups are stored in
+`~/.otcli_config/backups/`.
 
 ### Environment variables
 
 | Variable | Purpose |
 |---|---|
+| `OTCLI_HOME` | Override the data directory (default: `~/.otcli_config`). Useful for CI, sandboxes, or alternative deployments. |
 | `OTCLI_FILESTORE_MISSING_TOLERANCE` | Accept up to N missing files during filestore backup/restore verification (default: 0, i.e. any loss aborts). |
 
 ## Client configuration (TOML)
 
-Each client is a TOML file under `~/.odoo_task_cli_config/clientes/`. Keys:
+Each client is a TOML file under `~/.otcli_config/clientes/`. Keys:
 
 | Key | Meaning |
 |---|---|
@@ -82,12 +83,22 @@ Each client is a TOML file under `~/.odoo_task_cli_config/clientes/`. Keys:
 
 The interactive `otcli` command can create and edit these files for you.
 
+## Upgrading from pre-1.0 installations
+
+Versions prior to 1.0 stored configuration under
+`~/.odoo_task_cli_config/`. As of 1.0, the data directory is
+`~/.otcli_config/`. **There is no automatic migration.** If you have
+pre-1.0 client TOMLs on disk, please reconfigure your clients via
+`otcli interactive` (option *Editar Configuración*) — otcli ignores the
+legacy directory entirely.
+
 ## Project layout
 
 ```
 src/otcli/
 ├── __main__.py              # entry point (python -m otcli / otcli)
 ├── bootstrap.py             # client discovery + global config singleton
+├── paths.py                 # Settings dataclass: filesystem layout
 ├── cli/
 │   └── app.py               # Typer application (backup / restore / upgrade / interactive)
 ├── domain/
