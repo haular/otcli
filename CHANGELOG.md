@@ -47,6 +47,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The wizard branches on `install_mode`: docker asks for the
   container; native and source skip the container question and ask
   for an absolute path with mode-specific guidance.
+- New `odoo.odoo_conf_path` field for the path to an `odoo.conf` to
+  forward as `-c <path>` when invoking `odoo-bin neutralize`.
+  Mandatory in `source` mode (without `-c` the script cannot reach
+  Postgres); optional in `native` mode (the Debian package usually
+  picks up `/etc/odoo/odoo.conf` automatically); ignored in
+  `docker` mode (the container ships its own configuration).
 
 ### Changed
 

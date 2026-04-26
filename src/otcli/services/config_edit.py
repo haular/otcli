@@ -58,6 +58,16 @@ DESCRIPTIONS = {
     'odoo_bin_path_source': (
         "Ruta absoluta a 'odoo-bin' DENTRO DEL CLON DE ODOO en el host (ej. /home/user/odoo/odoo-bin). Obligatorio."
     ),
+    'odoo_conf_path_native': (
+        'Ruta absoluta a un archivo odoo.conf en el host. Opcional: el paquete '
+        'Debian de Odoo lee /etc/odoo/odoo.conf por defecto. Si tu instalación '
+        'lo necesita expl\u00edcitamente, indícalo aquí; se pasará a odoo-bin con -c.'
+    ),
+    'odoo_conf_path_source': (
+        'Ruta absoluta a un archivo odoo.conf en el host (ej. '
+        '/home/user/projects/cliente/odoo.conf). Obligatorio: odoo-bin '
+        'necesita -c para conocer la conexión a Postgres y los addons-path.'
+    ),
     'technical_client_name': (
         'Nombre técnico del cliente. Se utilizará como nombre de la base de datos y para el directorio del filestore.'
     ),
@@ -84,6 +94,7 @@ _CONFIG_KEY_GETTERS: dict[str, Callable[[ClientConfig], str]] = {
     'odoo_install_mode': lambda c: c.odoo.install_mode,
     'odoo_container_name': lambda c: c.odoo.container_name,
     'odoo_bin_path': lambda c: c.odoo.odoo_bin_path,
+    'odoo_conf_path': lambda c: c.odoo.odoo_conf_path,
 }
 
 
@@ -108,13 +119,16 @@ def edit_configuration_interactive(existing: ClientConfig | None = None) -> Clie
 
     odoo_container_name = ''
     odoo_bin_path = ''
+    odoo_conf_path = ''
     if install_mode == 'docker':
         odoo_container_name = _ask_odoo_container(existing)
         odoo_bin_path = _ask_odoo_bin_path(existing, mode='docker')
     elif install_mode == 'native':
         odoo_bin_path = _ask_odoo_bin_path(existing, mode='native')
+        odoo_conf_path = _ask_odoo_conf_path(existing, mode='native')
     elif install_mode == 'source':
         odoo_bin_path = _ask_odoo_bin_path(existing, mode='source')
+        odoo_conf_path = _ask_odoo_conf_path(existing, mode='source')
 
     cfg = ClientConfig(
         technical_name=technical_client_name,
@@ -125,6 +139,7 @@ def edit_configuration_interactive(existing: ClientConfig | None = None) -> Clie
             install_mode=install_mode,
             container_name=odoo_container_name,
             odoo_bin_path=odoo_bin_path,
+            odoo_conf_path=odoo_conf_path,
         ),
         upgrade=Upgrade(
             target=upgrade_target,
@@ -208,3 +223,18 @@ def _ask_odoo_bin_path(existing: ClientConfig | None, *, mode: str) -> str:
             typer.echo("La ruta es obligatoria cuando install_mode='source'.")
 
     return _prompt_for_value('odoo_bin_path', current, description)
+
+
+def _ask_odoo_conf_path(existing: ClientConfig | None, *, mode: str) -> str:
+    """Ask for the ``odoo.conf`` path. Optional in native, mandatory in source."""
+    current = _existing_value(existing, 'odoo_conf_path')
+    description = DESCRIPTIONS[f'odoo_conf_path_{mode}']
+
+    if mode == 'source':
+        while True:
+            value = _prompt_for_value('odoo_conf_path', current, description)
+            if value:
+                return value
+            typer.echo("La ruta del odoo.conf es obligatoria cuando install_mode='source'.")
+
+    return _prompt_for_value('odoo_conf_path', current, description)

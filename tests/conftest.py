@@ -86,6 +86,7 @@ def client_dict() -> dict:
             'install_mode': 'docker',
             'container_name': 'odoo',
             'odoo_bin_path': '',
+            'odoo_conf_path': '',
         },
         'upgrade': {
             'target': '18.0',

@@ -149,6 +149,21 @@ class TestDockerMode:
         last_call_argv = mock_exec.call_args_list[-1].args[1]
         assert last_call_argv == ['/usr/bin/odoo-bin', 'neutralize', '-d', 'beta']
 
+    def test_docker_ignores_odoo_conf_path(self, client_dict: dict) -> None:
+        """Docker mode never forwards odoo_conf_path even if set:
+        the container has its own embedded configuration."""
+        client_dict['odoo']['odoo_bin_path'] = '/usr/bin/odoo-bin'
+        client_dict['odoo']['odoo_conf_path'] = '/some/conf/from/host.conf'
+        cfg = ClientConfig.from_dict(client_dict)
+
+        with patch.object(neut, '_docker_exec') as mock_exec:
+            mock_exec.side_effect = [_proc(0), _proc(0)]
+            neut.neutralize_database(cfg)
+
+        last_call_argv = mock_exec.call_args_list[-1].args[1]
+        assert last_call_argv == ['/usr/bin/odoo-bin', 'neutralize', '-d', 'acme']
+        assert '-c' not in last_call_argv
+
 
 # =========================================================================
 # install_mode='native'
@@ -238,6 +253,47 @@ class TestNativeMode:
         ):
             neut.neutralize_database(cfg)
 
+    def test_native_without_conf_does_not_pass_minus_c(self, client_dict: dict) -> None:
+        """Without odoo_conf_path, native mode invokes odoo-bin directly."""
+        client_dict['odoo']['install_mode'] = 'native'
+        client_dict['odoo']['container_name'] = ''
+        client_dict['odoo']['odoo_bin_path'] = ''
+        client_dict['odoo']['odoo_conf_path'] = ''
+        cfg = ClientConfig.from_dict(client_dict)
+
+        with (
+            patch.object(neut.shutil, 'which', return_value='/usr/bin/odoo-bin'),
+            patch.object(neut, '_host_exec', return_value=_proc(0)) as mock_host,
+        ):
+            neut.neutralize_database(cfg)
+
+        argv = mock_host.call_args.args[0]
+        assert argv == ['/usr/bin/odoo-bin', 'neutralize', '-d', 'acme']
+        assert '-c' not in argv
+
+    def test_native_with_conf_passes_minus_c(self, client_dict: dict) -> None:
+        client_dict['odoo']['install_mode'] = 'native'
+        client_dict['odoo']['container_name'] = ''
+        client_dict['odoo']['odoo_bin_path'] = ''
+        client_dict['odoo']['odoo_conf_path'] = '/etc/odoo/custom.conf'
+        cfg = ClientConfig.from_dict(client_dict)
+
+        with (
+            patch.object(neut.shutil, 'which', return_value='/usr/bin/odoo-bin'),
+            patch.object(neut, '_host_exec', return_value=_proc(0)) as mock_host,
+        ):
+            neut.neutralize_database(cfg)
+
+        argv = mock_host.call_args.args[0]
+        assert argv == [
+            '/usr/bin/odoo-bin',
+            '-c',
+            '/etc/odoo/custom.conf',
+            'neutralize',
+            '-d',
+            'acme',
+        ]
+
 
 # =========================================================================
 # install_mode='source'
@@ -245,34 +301,46 @@ class TestNativeMode:
 
 
 class TestSourceMode:
-    def test_explicit_path_runs_on_host(self, client_dict: dict, tmp_path: Path) -> None:
-        odoo_bin = _make_executable(tmp_path / 'odoo' / 'odoo-bin')
+    @staticmethod
+    def _set_source(client_dict: dict, *, odoo_bin: str, odoo_conf: str = '/tmp/x.conf') -> None:
         client_dict['odoo']['install_mode'] = 'source'
         client_dict['odoo']['container_name'] = ''
-        client_dict['odoo']['odoo_bin_path'] = str(odoo_bin)
+        client_dict['odoo']['odoo_bin_path'] = odoo_bin
+        client_dict['odoo']['odoo_conf_path'] = odoo_conf
+
+    def test_explicit_path_runs_on_host_with_conf(self, client_dict: dict, tmp_path: Path) -> None:
+        odoo_bin = _make_executable(tmp_path / 'odoo' / 'odoo-bin')
+        odoo_conf = '/home/user/projects/acme/odoo.conf'
+        self._set_source(client_dict, odoo_bin=str(odoo_bin), odoo_conf=odoo_conf)
         cfg = ClientConfig.from_dict(client_dict)
 
         with patch.object(neut, '_host_exec', return_value=_proc(0)) as mock_host:
             neut.neutralize_database(cfg)
 
         argv = mock_host.call_args.args[0]
-        assert argv == [str(odoo_bin), 'neutralize', '-d', 'acme']
+        # -c <conf> must precede 'neutralize -d <db>'
+        assert argv == [str(odoo_bin), '-c', odoo_conf, 'neutralize', '-d', 'acme']
 
     def test_missing_odoo_bin_path_rejected_by_schema(self, client_dict: dict) -> None:
         """When install_mode='source' and odoo_bin_path is empty,
         ClientConfig.from_dict already rejects the input."""
         from otcli.domain.exceptions import ClientConfigError
 
-        client_dict['odoo']['install_mode'] = 'source'
-        client_dict['odoo']['container_name'] = ''
-        client_dict['odoo']['odoo_bin_path'] = ''
+        self._set_source(client_dict, odoo_bin='', odoo_conf='/tmp/x.conf')
         with pytest.raises(ClientConfigError, match='odoo_bin_path is required'):
             ClientConfig.from_dict(client_dict)
 
+    def test_missing_odoo_conf_path_rejected_by_schema(self, client_dict: dict) -> None:
+        """When install_mode='source' and odoo_conf_path is empty,
+        ClientConfig.from_dict already rejects the input."""
+        from otcli.domain.exceptions import ClientConfigError
+
+        self._set_source(client_dict, odoo_bin='/home/user/odoo-bin', odoo_conf='')
+        with pytest.raises(ClientConfigError, match='odoo_conf_path is required'):
+            ClientConfig.from_dict(client_dict)
+
     def test_explicit_path_invalid_raises_at_runtime(self, client_dict: dict, tmp_path: Path) -> None:
-        client_dict['odoo']['install_mode'] = 'source'
-        client_dict['odoo']['container_name'] = ''
-        client_dict['odoo']['odoo_bin_path'] = str(tmp_path / 'does-not-exist')
+        self._set_source(client_dict, odoo_bin=str(tmp_path / 'does-not-exist'))
         cfg = ClientConfig.from_dict(client_dict)
 
         with pytest.raises(NeutralizeError, match='not an executable file'):
@@ -280,9 +348,7 @@ class TestSourceMode:
 
     def test_command_failure_propagates_stderr(self, client_dict: dict, tmp_path: Path) -> None:
         odoo_bin = _make_executable(tmp_path / 'odoo-bin')
-        client_dict['odoo']['install_mode'] = 'source'
-        client_dict['odoo']['container_name'] = ''
-        client_dict['odoo']['odoo_bin_path'] = str(odoo_bin)
+        self._set_source(client_dict, odoo_bin=str(odoo_bin))
         cfg = ClientConfig.from_dict(client_dict)
 
         with (

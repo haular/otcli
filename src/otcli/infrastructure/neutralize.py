@@ -176,13 +176,27 @@ def _is_executable(path: Path) -> bool:
 # --- public API ----------------------------------------------------------
 
 
+def _build_neutralize_argv(odoo_bin: str, db_name: str, conf_path: str) -> list[str]:
+    """Build the argv for ``odoo-bin neutralize``, optionally with ``-c``."""
+    argv = [odoo_bin]
+    if conf_path:
+        argv.extend(['-c', conf_path])
+    argv.extend(['neutralize', '-d', db_name])
+    return argv
+
+
 def neutralize_database(client: ClientConfig) -> None:
     """Run ``odoo-bin neutralize -d <db_name>`` against ``client``.
 
     Dispatches on ``client.odoo.install_mode``:
 
     * ``docker``: ``docker exec <container> <odoo-bin> neutralize -d <db>``.
-    * ``native`` / ``source``: ``<odoo-bin> neutralize -d <db>`` on the host.
+      The container's embedded configuration is used; ``odoo_conf_path``
+      is ignored.
+    * ``native``: ``<odoo-bin> [-c <conf>] neutralize -d <db>`` on the
+      host. ``-c`` is added when ``odoo_conf_path`` is configured.
+    * ``source``: ``<odoo-bin> -c <conf> neutralize -d <db>`` on the
+      host. Both bin and conf paths are required (validated upstream).
 
     Pre-conditions (caller responsibility):
       - ``client.upgrade.environment == 'test'``.
@@ -200,7 +214,9 @@ def neutralize_database(client: ClientConfig) -> None:
         if not client.odoo.container_name:
             raise NeutralizeError("odoo.container_name is empty; cannot neutralize. Configure it with 'otcli config edit'.")
         odoo_bin = _resolve_in_docker(client)
-        argv = [odoo_bin, 'neutralize', '-d', db_name]
+        # In docker mode the container ships its own config; we never
+        # forward odoo_conf_path even if it's set on the client.
+        argv = _build_neutralize_argv(odoo_bin, db_name, conf_path='')
         logger.info(
             'Neutralizing database %s via %s in container %s',
             db_name,
@@ -211,13 +227,14 @@ def neutralize_database(client: ClientConfig) -> None:
         rendered = f'docker exec {client.odoo.container_name} {shlex.join(argv)}'
     elif mode == 'native':
         odoo_bin = _resolve_native(client)
-        argv = [odoo_bin, 'neutralize', '-d', db_name]
+        argv = _build_neutralize_argv(odoo_bin, db_name, conf_path=client.odoo.odoo_conf_path)
         logger.info('Neutralizing database %s via host odoo-bin %s', db_name, odoo_bin)
         proc = _host_exec(argv)
         rendered = shlex.join(argv)
     elif mode == 'source':
         odoo_bin = _resolve_source(client)
-        argv = [odoo_bin, 'neutralize', '-d', db_name]
+        # Schema validation guarantees odoo_conf_path is set in 'source'.
+        argv = _build_neutralize_argv(odoo_bin, db_name, conf_path=client.odoo.odoo_conf_path)
         logger.info('Neutralizing database %s via source odoo-bin %s', db_name, odoo_bin)
         proc = _host_exec(argv)
         rendered = shlex.join(argv)

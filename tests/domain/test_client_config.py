@@ -26,6 +26,7 @@ def _full_dict() -> dict:
             'install_mode': 'docker',
             'container_name': 'odoo',
             'odoo_bin_path': '',
+            'odoo_conf_path': '',
         },
         'upgrade': {
             'target': '18.0',
@@ -157,18 +158,31 @@ def test_source_mode_requires_odoo_bin_path():
     raw['odoo']['install_mode'] = 'source'
     raw['odoo']['container_name'] = ''
     raw['odoo']['odoo_bin_path'] = ''
+    raw['odoo']['odoo_conf_path'] = '/home/user/odoo.conf'
     with pytest.raises(ClientConfigError, match='odoo_bin_path is required'):
         ClientConfig.from_dict(raw)
 
 
-def test_source_mode_with_explicit_path():
+def test_source_mode_requires_odoo_conf_path():
     raw = _full_dict()
     raw['odoo']['install_mode'] = 'source'
     raw['odoo']['container_name'] = ''
     raw['odoo']['odoo_bin_path'] = '/home/user/odoo/odoo-bin'
+    raw['odoo']['odoo_conf_path'] = ''
+    with pytest.raises(ClientConfigError, match='odoo_conf_path is required'):
+        ClientConfig.from_dict(raw)
+
+
+def test_source_mode_with_explicit_paths():
+    raw = _full_dict()
+    raw['odoo']['install_mode'] = 'source'
+    raw['odoo']['container_name'] = ''
+    raw['odoo']['odoo_bin_path'] = '/home/user/odoo/odoo-bin'
+    raw['odoo']['odoo_conf_path'] = '/home/user/projects/acme/odoo.conf'
     cfg = ClientConfig.from_dict(raw)
     assert cfg.odoo.install_mode == 'source'
     assert cfg.odoo.odoo_bin_path == '/home/user/odoo/odoo-bin'
+    assert cfg.odoo.odoo_conf_path == '/home/user/projects/acme/odoo.conf'
 
 
 def test_odoo_bin_path_round_trips():
