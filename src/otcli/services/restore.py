@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import glob
 import logging
-import os
 
 import typer
 
+from otcli.cli import prompts
 from otcli.domain.client_config import ClientConfig
 from otcli.domain.exceptions import OdooCLIError
 from otcli.infrastructure.odoo_http import (
@@ -24,27 +23,21 @@ logger = logging.getLogger(__name__)
 
 def _select_backup_file(settings: Settings) -> str | None:
     """Prompt the user to pick a ``.zip`` from the backups directory."""
-    backup_dir = str(settings.backups_dir)
-    zip_files = sorted(glob.glob(os.path.join(backup_dir, '*.zip')))
+    backup_dir = settings.backups_dir
+    if not backup_dir.is_dir():
+        typer.echo(f'No backups directory yet: {backup_dir}.')
+        return None
 
-    if not zip_files:
+    zip_paths = sorted(backup_dir.glob('*.zip'))
+    if not zip_paths:
         typer.echo(f'No .zip backup files found in {backup_dir}.')
         return None
 
-    typer.echo(f'Found {len(zip_files)} backup files in {backup_dir}:')
-    for i, zip_file in enumerate(zip_files, 1):
-        typer.echo(f'  {i}: {os.path.basename(zip_file)}')
-
-    while True:
-        try:
-            choice = typer.prompt('Select a backup file to restore (enter number)', type=int)
-        except ValueError:
-            typer.echo('Invalid input. Please enter a number.')
-            continue
-        index = choice - 1
-        if 0 <= index < len(zip_files):
-            return zip_files[index]
-        typer.echo('Invalid selection. Please enter a valid number.')
+    name_to_path = {p.name: str(p) for p in zip_paths}
+    selected = prompts.pick_one('Select a backup file to restore', list(name_to_path.keys()))
+    if selected is None:
+        return None
+    return name_to_path[selected]
 
 
 def _restore_via_curl(client: ClientConfig, backup_file: str) -> None:
@@ -57,8 +50,8 @@ def _restore_via_curl(client: ClientConfig, backup_file: str) -> None:
     odoo_db_name = client.database.db_name
 
     if odoo_db_name in db_list:
-        if not typer.confirm(
-            f'Database {odoo_db_name} already exists. Do you want to drop and recreate it?',
+        if not prompts.confirm(
+            f'Database {odoo_db_name} already exists. Drop and recreate it?',
             default=True,
         ):
             return
@@ -69,16 +62,13 @@ def _restore_via_curl(client: ClientConfig, backup_file: str) -> None:
 
 def _prompt_restore_method() -> str:
     """Ask the user for the restoration method. Returns 'd' or 'c'."""
-    while True:
-        choice = typer.prompt(
-            'Select restoration method: (C)URL or (D)ocker container? [C/D] (Default: D)',
-            default='D',
-        ).lower()
-        if choice in ('', 'd'):
-            return 'd'
-        if choice == 'c':
-            return 'c'
-        typer.echo("Invalid restoration method. Please choose 'C' for CURL or 'D' for Docker container.")
+    answer = prompts.pick_one(
+        'Select restoration method',
+        ['Docker container (psql)', 'HTTP / curl'],
+    )
+    if answer is None:
+        raise OdooCLIError('No restoration method selected.')
+    return 'd' if answer.startswith('Docker') else 'c'
 
 
 def restore_odoo_database(client: ClientConfig, settings: Settings) -> None:
@@ -92,3 +82,6 @@ def restore_odoo_database(client: ClientConfig, settings: Settings) -> None:
         restore_database_from_container(client, selected_backup_file)
     else:
         _restore_via_curl(client, selected_backup_file)
+
+
+__all__ = ['restore_odoo_database']

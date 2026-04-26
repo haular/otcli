@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import glob
 import logging
-import os
 
 import typer
 
 from otcli import logging_setup
+from otcli.cli import prompts
 from otcli.cli.context import AppContext, get_context
 from otcli.domain.client_config import ClientConfig
 from otcli.domain.exceptions import ClientConfigError, OdooCLIError
@@ -32,31 +31,14 @@ def _select_or_create_client(settings: Settings) -> ClientConfig:
     settings.ensure_dirs()
 
     clients = list_clients(settings.clients_config_dir)
-    if clients:
-        typer.echo('\nClientes disponibles:')
-        for i, name in enumerate(clients, 1):
-            typer.echo(f'{i}. {name}')
-        typer.echo('0. Crear nuevo cliente')
+    if not clients:
+        typer.echo('No registered clients found. Starting new client setup...')
+        return _create_new_client(settings)
 
-        while True:
-            choice = typer.prompt(
-                "Selecciona un cliente (número o nombre) o '0' para crear uno nuevo",
-                type=str,
-            )
-            if choice == '0':
-                return _create_new_client(settings)
-            if choice.isdigit():
-                idx = int(choice) - 1
-                if 0 <= idx < len(clients):
-                    return load(clients[idx], settings.clients_config_dir)
-                typer.echo('Número no válido. Intenta de nuevo.')
-                continue
-            if choice in clients:
-                return load(choice, settings.clients_config_dir)
-            typer.echo('Nombre de cliente no encontrado. Intenta de nuevo.')
-
-    typer.echo('No se encontró ningún cliente configurado. Iniciando la creación de una nueva configuración...')
-    return _create_new_client(settings)
+    selected = prompts.pick_one('Select a client', clients, allow_create=True)
+    if selected is None:
+        return _create_new_client(settings)
+    return load(selected, settings.clients_config_dir)
 
 
 def _create_new_client(settings: Settings) -> ClientConfig:
@@ -138,46 +120,137 @@ def upgrade_command(
         raise typer.Exit(code=1) from err
 
 
+# --- 'config' sub-app -----------------------------------------------------
+
+config_app = typer.Typer(help='Manage client configurations.')
+app.add_typer(config_app, name='config')
+
+
+@config_app.command('list')
+def config_list_command(ctx: typer.Context) -> None:
+    """List registered clients."""
+    actx = get_context(ctx)
+    names = list_clients(actx.settings.clients_config_dir)
+    if not names:
+        typer.echo(f'No clients registered in {actx.settings.clients_config_dir}.')
+        return
+    for name in names:
+        marker = ' (current)' if name == actx.client.technical_name else ''
+        typer.echo(f'- {name}{marker}')
+
+
+@config_app.command('edit')
+def config_edit_command(ctx: typer.Context) -> None:
+    """Edit the current client's configuration interactively."""
+    actx = get_context(ctx)
+    try:
+        new_cfg = edit_configuration_interactive(existing=actx.client)
+    except OdooCLIError as err:
+        typer.echo(f'Error: {err}', err=True)
+        raise typer.Exit(code=1) from err
+    written = save(new_cfg, actx.settings.clients_config_dir)
+    typer.echo(f'Configuration saved to {written}')
+
+
+@config_app.command('delete')
+def config_delete_command(
+    ctx: typer.Context,
+    name: str = typer.Argument(..., help='Client name to delete.'),
+    yes: bool = typer.Option(False, '--yes', '-y', help='Skip confirmation.'),
+) -> None:
+    """Delete a client configuration TOML."""
+    actx = get_context(ctx)
+    target = actx.settings.clients_config_dir / f'{name}.toml'
+    if not target.is_file():
+        typer.echo(f'Client {name!r} not found at {target}', err=True)
+        raise typer.Exit(code=1)
+
+    if not yes and not prompts.confirm(f'Delete {target}?', default=False):
+        typer.echo('Aborted.')
+        return
+
+    target.unlink()
+    typer.echo(f'Deleted {target}')
+
+
+@config_app.command('show')
+def config_show_command(ctx: typer.Context) -> None:
+    """Print the current client's configuration."""
+    actx = get_context(ctx)
+    typer.echo(f'Client: {actx.client.technical_name}')
+    typer.echo(f'  filestore_dir       : {actx.client.filestore_dir}')
+    typer.echo(f'  database.url        : {actx.client.database.url}')
+    typer.echo(f'  database.db_name    : {actx.client.database.db_name}')
+    typer.echo(f'  docker.db_container : {actx.client.docker.db_container}')
+    typer.echo(f'  docker.odoo_container: {actx.client.docker.odoo_container}')
+    typer.echo(f'  upgrade.target      : {actx.client.upgrade.target}')
+    typer.echo(f'  upgrade.environment : {actx.client.upgrade.environment}')
+    typer.echo(f'  upgrade.repo_path   : {actx.client.upgrade.repo_path}')
+    typer.echo(f'  commands            : {len(actx.client.commands)} configured')
+
+
+# --- 'backups' sub-app ---------------------------------------------------
+
+backups_app = typer.Typer(help='Inspect generated backup archives.')
+app.add_typer(backups_app, name='backups')
+
+
+@backups_app.command('list')
+def backups_list_command(ctx: typer.Context) -> None:
+    """List all .zip backups in the backups directory."""
+    actx = get_context(ctx)
+    backup_dir = actx.settings.backups_dir
+    if not backup_dir.is_dir():
+        typer.echo(f'No backups directory yet: {backup_dir}.')
+        return
+    zips = sorted(backup_dir.glob('*.zip'))
+    if not zips:
+        typer.echo(f'No .zip backups in {backup_dir}.')
+        return
+    for p in zips:
+        size_mb = p.stat().st_size / (1024 * 1024)
+        typer.echo(f'{p.name}\t{size_mb:.1f} MB')
+
+
+@backups_app.command('path')
+def backups_path_command(ctx: typer.Context) -> None:
+    """Print the absolute path of the backups directory."""
+    actx = get_context(ctx)
+    typer.echo(actx.settings.backups_dir)
+
+
 # --- Interactive-mode helpers ---------------------------------------------
 
 
 def _prompt_select_backup_file(settings: Settings, prompt_message: str) -> str | None:
     """List available ``.zip`` backups and let the user pick one."""
-    backup_dir = str(settings.backups_dir)
-    zip_files = sorted(glob.glob(os.path.join(backup_dir, '*.zip')))
+    backup_dir = settings.backups_dir
+    if not backup_dir.is_dir():
+        typer.echo(f'No backups directory yet: {backup_dir}.')
+        return None
 
-    if not zip_files:
+    zip_paths = sorted(backup_dir.glob('*.zip'))
+    if not zip_paths:
         typer.echo(f'No .zip backup files found in {backup_dir}.')
         return None
 
-    typer.echo(f'Found {len(zip_files)} backup files in {backup_dir}:')
-    for i, zip_file in enumerate(zip_files, 1):
-        typer.echo(f'  {i}: {os.path.basename(zip_file)}')
-
-    while True:
-        try:
-            choice = typer.prompt(prompt_message, type=int)
-        except ValueError:
-            typer.echo('Invalid input. Please enter a number.')
-            continue
-        index = choice - 1
-        if 0 <= index < len(zip_files):
-            return zip_files[index]
-        typer.echo('Invalid selection. Please enter a valid number.')
+    name_to_path = {p.name: str(p) for p in zip_paths}
+    selected = prompts.pick_one(prompt_message, list(name_to_path.keys()))
+    return name_to_path.get(selected) if selected else None
 
 
 def _do_interactive_backup(actx: AppContext) -> None:
-    with_filestore = typer.confirm('¿Deseas incluir el filestore en el backup?', default=True)
+    with_filestore = prompts.confirm('Include filestore in the backup?', default=True)
     backup_odoo_instance(actx.client, actx.settings, with_filestore=with_filestore)
-    typer.echo('Operación de Backup completada.')
+    typer.echo('Backup operation completed.')
 
 
 def _do_interactive_upgrade(actx: AppContext) -> None:
-    selected = _prompt_select_backup_file(actx.settings, 'Select a backup file to upgrade (enter number)')
+    selected = _prompt_select_backup_file(actx.settings, 'Select a backup file to upgrade')
     if selected is None:
         return
     upgrade_database(actx.client, backup_file=selected)
-    typer.echo('Operación de Actualización completada.')
+    typer.echo('Upgrade operation completed.')
 
 
 def _do_interactive_edit_config(actx: AppContext) -> AppContext:

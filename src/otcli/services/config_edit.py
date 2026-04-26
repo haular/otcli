@@ -13,6 +13,7 @@ import os
 
 import typer
 
+from otcli.cli import prompts
 from otcli.domain.client_config import (
     ClientConfig,
     CommandHash,
@@ -96,12 +97,10 @@ def edit_configuration_interactive(existing: ClientConfig | None = None) -> Clie
         description = DESCRIPTIONS[key]
 
         if key == 'environment':
-            while True:
-                value = _prompt_for_value(key, current_value, description)
-                if value in _ALLOWED_ENVIRONMENTS:
-                    answers[key] = value
-                    break
-                typer.echo(f'Valor inválido. Introduce uno de: {", ".join(_ALLOWED_ENVIRONMENTS)}.')
+            choice = prompts.pick_one(description, list(_ALLOWED_ENVIRONMENTS))
+            answers[key] = choice if choice else current_value
+        elif key == 'master_pwd':
+            answers[key] = prompts.ask_secret(f'{description}\n{key}:') or current_value
         elif key == 'db_container_name':
             db_container_name = _handle_docker_container_selection(current_value, description)
             if db_container_name is None:
