@@ -193,6 +193,71 @@ def _verify_filestore_after_restore(extracted_filestore: str, final_path: str) -
         )
 
 
+def _terminate_active_connections(container, db_name: str) -> None:
+    """Forcibly terminate every backend connected to ``db_name``.
+
+    Required before ``dropdb``: PostgreSQL refuses to drop a database
+    while it has active sessions (typical with a running Odoo worker
+    pool). The query is best-effort:
+
+    * It runs against ``postgres`` so the call succeeds even if
+      ``db_name`` does not exist yet (first-time restore).
+    * ``pg_terminate_backend`` returns booleans — non-zero rows is fine,
+      zero rows is also fine.
+    * Failures (e.g. permission denied on a managed instance) are logged
+      and ignored; the subsequent ``dropdb`` will surface any remaining
+      issue clearly.
+    """
+    sql = (
+        'SELECT pg_terminate_backend(pid) '
+        'FROM pg_stat_activity '
+        f"WHERE datname = '{db_name}' AND pid <> pg_backend_pid();"
+    )
+    logger.info('Terminating active connections to %s before drop...', db_name)
+    result = _exec_in_container(
+        container,
+        f'psql -U odoo -d postgres -c "{sql}"',
+        check=False,
+    )
+    if result.exit_code != 0:
+        logger.warning(
+            'Could not terminate sessions on %s (exit=%s); will attempt drop anyway.',
+            db_name,
+            result.exit_code,
+        )
+
+
+def _database_exists(container, db_name: str) -> bool:
+    """Return ``True`` iff ``db_name`` is currently listed by Postgres."""
+    # psql -lqt prints one row per database with the name in the first
+    # column; -A removes alignment whitespace, -t suppresses headers.
+    result = _exec_in_container(
+        container,
+        f"psql -U odoo -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname='{db_name}';\"",
+        check=False,
+    )
+    if result.exit_code != 0:
+        return False
+    return result.output.decode('utf-8', errors='replace').strip() == '1'
+
+
+def _ensure_database_dropped(container, db_name: str) -> None:
+    """Verify ``db_name`` no longer exists; otherwise raise a clear error.
+
+    This catches the case where ``dropdb`` was run with ``check=False``
+    (because the database may not exist yet) but actually failed for a
+    real reason, like remaining sessions that reconnected immediately
+    after :func:`_terminate_active_connections`.
+    """
+    if _database_exists(container, db_name):
+        raise OdooCLIError(
+            f"Cannot recreate database '{db_name}': it still exists after dropdb. "
+            'This usually means there are active connections that keep reopening '
+            '(e.g. Odoo workers, pgAdmin, an open psql session). Stop those '
+            'clients (or pause the Odoo container) and retry.'
+        )
+
+
 def restore_database_from_container(client: ClientConfig, backup_file: str) -> None:
     """Restore a database dump and its filestore into the configured target.
 
@@ -238,6 +303,14 @@ def restore_database_from_container(client: ClientConfig, backup_file: str) -> N
 
         container = _get_container(target_db_container_name)
 
+        # Terminate any active sessions on the target database before
+        # dropping it. Without this step, restoring a database that is
+        # currently being used by an Odoo worker / connection-pool fails
+        # with "database is being accessed by other users". Best-effort:
+        # if the DB does not exist yet, the query still succeeds (returns
+        # zero rows).
+        _terminate_active_connections(container, target_db_name)
+
         # dropdb is best-effort: the target database may not exist yet. We use
         # --if-exists *and* check=False for maximum robustness across
         # PostgreSQL versions.
@@ -246,6 +319,12 @@ def restore_database_from_container(client: ClientConfig, backup_file: str) -> N
             f'dropdb -U odoo --if-exists {target_db_name}',
             check=False,
         )
+        # Verify the database is actually gone before recreating it: if
+        # dropdb silently failed (e.g. because new connections came in
+        # right after we terminated them), we want a loud, actionable
+        # error rather than a confusing "database already exists" from
+        # createdb.
+        _ensure_database_dropped(container, target_db_name)
         _exec_in_container(container, f'createdb -U odoo {target_db_name}')
         # ``sh -c`` so ``ON_ERROR_STOP=1`` is interpreted as a psql variable.
         _exec_in_container(

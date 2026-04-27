@@ -121,6 +121,116 @@ class TestRestoreFromContainer:
         for d in created:
             assert not os.path.exists(d), f'temp dir {d} leaked'
 
+    def test_terminates_active_connections_before_dropdb(
+        self, tmp_path: Path, configured_target: dict
+    ) -> None:
+        """Restore must run pg_terminate_backend BEFORE dropdb so that
+        active Odoo workers don't keep the database busy and make
+        ``dropdb`` silently fail."""
+        backup = _make_valid_backup(tmp_path / 'backup.zip')
+
+        executed: list[str] = []
+
+        def fake_exec(container, cmd, check=True):
+            executed.append(cmd)
+            return MagicMock(exit_code=0, output=b'')
+
+        with (
+            patch.object(restore_mod, '_get_container', return_value=MagicMock()),
+            patch.object(restore_mod, '_copy_file_to_container'),
+            patch.object(restore_mod, '_exec_in_container', side_effect=fake_exec),
+        ):
+            restore_mod.restore_database_from_container(configured_target['client'], str(backup))
+
+        # Find indices of the relevant commands and assert ordering.
+        terminate_idx = next(
+            (i for i, c in enumerate(executed) if 'pg_terminate_backend' in c),
+            -1,
+        )
+        dropdb_idx = next((i for i, c in enumerate(executed) if c.startswith('dropdb')), -1)
+        createdb_idx = next((i for i, c in enumerate(executed) if c.startswith('createdb')), -1)
+
+        assert terminate_idx >= 0, 'pg_terminate_backend was not invoked'
+        assert dropdb_idx >= 0, 'dropdb was not invoked'
+        assert createdb_idx >= 0, 'createdb was not invoked'
+        assert terminate_idx < dropdb_idx < createdb_idx, (
+            f'wrong order: terminate={terminate_idx}, dropdb={dropdb_idx}, createdb={createdb_idx}'
+        )
+
+    def test_terminate_query_targets_correct_database(
+        self, tmp_path: Path, configured_target: dict
+    ) -> None:
+        """The pg_terminate_backend SELECT must filter by the target db
+        name AND exclude its own backend (pg_backend_pid)."""
+        backup = _make_valid_backup(tmp_path / 'backup.zip')
+
+        executed: list[str] = []
+
+        def fake_exec(container, cmd, check=True):
+            executed.append(cmd)
+            return MagicMock(exit_code=0, output=b'')
+
+        with (
+            patch.object(restore_mod, '_get_container', return_value=MagicMock()),
+            patch.object(restore_mod, '_copy_file_to_container'),
+            patch.object(restore_mod, '_exec_in_container', side_effect=fake_exec),
+        ):
+            restore_mod.restore_database_from_container(configured_target['client'], str(backup))
+
+        terminate_cmds = [c for c in executed if 'pg_terminate_backend' in c]
+        assert terminate_cmds, 'no pg_terminate_backend command issued'
+        cmd = terminate_cmds[0]
+        assert "datname = 'target_db'" in cmd
+        assert 'pg_backend_pid()' in cmd  # exclude self
+        # Must run against `postgres`, not the (possibly missing) target db.
+        assert '-d postgres' in cmd
+
+    def test_aborts_clearly_when_dropdb_silently_failed(
+        self, tmp_path: Path, configured_target: dict
+    ) -> None:
+        """If after dropdb the database still exists (e.g. new sessions
+        reconnected), we must abort with a clear, actionable error
+        instead of letting createdb fail with the obscure 'database
+        already exists' message."""
+        backup = _make_valid_backup(tmp_path / 'backup.zip')
+
+        # Sequence of (cmd_match, exit_code, output) responses.
+        # _database_exists -> output '1' -> True
+        def fake_exec(container, cmd, check=True):
+            if 'pg_database WHERE datname' in cmd:
+                # database STILL exists after dropdb
+                return MagicMock(exit_code=0, output=b'1\n')
+            return MagicMock(exit_code=0, output=b'')
+
+        with (
+            patch.object(restore_mod, '_get_container', return_value=MagicMock()),
+            patch.object(restore_mod, '_copy_file_to_container'),
+            patch.object(restore_mod, '_exec_in_container', side_effect=fake_exec),
+            pytest.raises(OdooCLIError, match='still exists after dropdb'),
+        ):
+            restore_mod.restore_database_from_container(configured_target['client'], str(backup))
+
+    def test_terminate_failure_is_warned_but_does_not_abort(
+        self, tmp_path: Path, configured_target: dict
+    ) -> None:
+        """If the terminate query itself fails (e.g. permission denied),
+        we should log a warning and proceed: dropdb may still succeed
+        on its own."""
+        backup = _make_valid_backup(tmp_path / 'backup.zip')
+
+        def fake_exec(container, cmd, check=True):
+            if 'pg_terminate_backend' in cmd:
+                return MagicMock(exit_code=1, output=b'permission denied')
+            return MagicMock(exit_code=0, output=b'')
+
+        with (
+            patch.object(restore_mod, '_get_container', return_value=MagicMock()),
+            patch.object(restore_mod, '_copy_file_to_container'),
+            patch.object(restore_mod, '_exec_in_container', side_effect=fake_exec),
+        ):
+            # Must NOT raise.
+            restore_mod.restore_database_from_container(configured_target['client'], str(backup))
+
     def test_filestore_restored_under_db_name(self, tmp_path: Path, configured_target: dict) -> None:
         backup = _make_valid_backup(tmp_path / 'backup.zip', filestore_files=3)
 
