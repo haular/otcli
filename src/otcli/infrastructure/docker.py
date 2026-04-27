@@ -14,6 +14,7 @@ the codebase (and the existing test suite) does not need to change.
 
 from __future__ import annotations
 
+import json
 import logging
 import shlex
 import subprocess
@@ -25,6 +26,13 @@ from otcli.domain.exceptions import ContainerNotFoundError, OdooCLIError
 from otcli.domain.shell import run
 
 logger = logging.getLogger(__name__)
+
+# Common locations where Odoo's odoo.conf may live inside a container.
+_DEFAULT_ODOO_CONF_PATHS: tuple[str, ...] = (
+    '/etc/odoo/odoo.conf',
+    '/etc/odoo.conf',
+    '/etc/odoo/openerp-server.conf',
+)
 
 
 @dataclass(slots=True)
@@ -142,6 +150,146 @@ def list_running_containers() -> list[str]:
         logger.error('docker ps failed: %s', proc.stderr.strip())
         return []
     return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+
+
+@dataclass(slots=True, frozen=True)
+class ContainerMount:
+    """A single bind-mount or named volume on a container.
+
+    ``source`` is the host-side path (for ``bind``) or the volume name
+    (for ``volume``). ``destination`` is the in-container path.
+    For named volumes, ``host_path`` carries the actual host path that
+    Docker uses to back the volume (``/var/lib/docker/volumes/<name>/_data``)
+    so callers can use either depending on what they need.
+    """
+
+    type: str
+    source: str
+    destination: str
+    host_path: str
+
+
+def list_container_mounts(container_name: str) -> list[ContainerMount]:
+    """Return all mounts (binds + named volumes) of ``container_name``.
+
+    Uses ``docker inspect`` and parses the ``Mounts`` array. Returns an
+    empty list if the container does not exist or docker is unavailable.
+    """
+    try:
+        proc = subprocess.run(
+            ['docker', 'inspect', container_name],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        logger.error('docker is not installed.')
+        return []
+    if proc.returncode != 0:
+        logger.error('docker inspect failed for %s: %s', container_name, proc.stderr.strip())
+        return []
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError as err:
+        logger.error('Could not parse docker inspect output: %s', err)
+        return []
+    if not data:
+        return []
+    raw_mounts = data[0].get('Mounts', []) or []
+    mounts: list[ContainerMount] = []
+    for m in raw_mounts:
+        m_type = m.get('Type', '')
+        source = m.get('Name') if m_type == 'volume' else m.get('Source', '')
+        host_path = m.get('Source', '')  # always the actual host path
+        destination = m.get('Destination', '')
+        mounts.append(
+            ContainerMount(
+                type=m_type,
+                source=source or '',
+                destination=destination,
+                host_path=host_path,
+            )
+        )
+    return mounts
+
+
+def read_file_from_container(container_name: str, path: str) -> str | None:
+    """Return the contents of ``path`` inside ``container_name`` as text.
+
+    Uses ``docker exec ... cat <path>``. Returns ``None`` if the file
+    does not exist or cannot be read; we deliberately do not raise so
+    callers can probe several candidate paths.
+    """
+    try:
+        proc = subprocess.run(
+            ['docker', 'exec', container_name, 'cat', path],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout
+
+
+def find_odoo_conf_in_container(container_name: str) -> tuple[str, str] | None:
+    """Locate an Odoo configuration file inside ``container_name``.
+
+    Tries a small list of well-known paths via ``cat`` (cheap; failed
+    reads cost nothing) and returns the first hit. The returned tuple
+    is ``(path_inside_container, file_contents)``.
+
+    Returns ``None`` if no candidate yielded a readable file.
+    """
+    for candidate in _DEFAULT_ODOO_CONF_PATHS:
+        contents = read_file_from_container(container_name, candidate)
+        if contents is not None:
+            return candidate, contents
+    return None
+
+
+def parse_data_dir_from_odoo_conf(contents: str) -> str | None:
+    """Extract the ``data_dir`` value from a parsed odoo.conf string.
+
+    The Odoo config file is INI-like; we look for the first uncommented
+    ``data_dir = <value>`` line. Returns ``None`` if absent.
+    """
+    for raw_line in contents.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith(('#', ';')):
+            continue
+        if '=' not in line:
+            continue
+        key, _, value = line.partition('=')
+        if key.strip() == 'data_dir':
+            return value.strip()
+    return None
+
+
+def map_container_path_to_host(container_name: str, container_path: str) -> str | None:
+    """Translate ``container_path`` into a host path using the container's mounts.
+
+    Picks the longest matching mount destination so that nested mounts
+    are handled correctly. Returns ``None`` if no mount covers the path.
+    """
+    if not container_path:
+        return None
+    mounts = list_container_mounts(container_name)
+    best: ContainerMount | None = None
+    for m in mounts:
+        if not m.destination:
+            continue
+        is_match = container_path == m.destination or container_path.startswith(m.destination.rstrip('/') + '/')
+        if is_match and (best is None or len(m.destination) > len(best.destination)):
+            best = m
+    if best is None:
+        return None
+    suffix = container_path[len(best.destination) :].lstrip('/')
+    if not best.host_path:
+        return None
+    return best.host_path.rstrip('/') + ('/' + suffix if suffix else '')
 
 
 def list_databases_in_container(container_name: str) -> list[str]:

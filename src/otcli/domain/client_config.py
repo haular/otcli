@@ -217,20 +217,3 @@ def _build_odoo(raw: dict[str, Any]) -> Odoo:
         odoo_conf_path=odoo_conf_path,
         python_executable=python_executable,
     )
-    if install_mode == 'source' and not odoo_conf_path:
-        raise ClientConfigError(
-            "odoo.odoo_conf_path is required when install_mode='source' (odoo-bin needs -c <conf> to reach Postgres)"
-        )
-
-    return Odoo(
-        install_mode=install_mode,
-        container_name=container_name,
-        odoo_bin_path=odoo_bin_path,
-        odoo_conf_path=odoo_conf_path,
-    )
-
-    return Odoo(
-        install_mode=install_mode,
-        container_name=container_name,
-        odoo_bin_path=odoo_bin_path,
-    )

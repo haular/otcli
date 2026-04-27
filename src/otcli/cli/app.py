@@ -7,7 +7,7 @@ import logging
 import typer
 
 from otcli import logging_setup
-from otcli.cli import prompts
+from otcli.cli import prompts, ui
 from otcli.cli.context import AppContext, get_context
 from otcli.domain.client_config import ClientConfig
 from otcli.domain.exceptions import ClientConfigError, OdooCLIError
@@ -17,6 +17,7 @@ from otcli.services.backup import backup_odoo_instance
 from otcli.services.config_edit import edit_configuration_interactive
 from otcli.services.restore import restore_odoo_database
 from otcli.services.upgrade import upgrade_database
+from otcli.services.upgrade_config import ask_upgrade_settings
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +33,10 @@ def _select_or_create_client(settings: Settings) -> ClientConfig:
 
     clients = list_clients(settings.clients_config_dir)
     if not clients:
-        typer.echo('No registered clients found. Starting new client setup...')
+        ui.info('No hay clientes registrados todavía. Vamos a crear el primero.')
         return _create_new_client(settings)
 
-    selected = prompts.pick_one('Select a client', clients, allow_create=True)
+    selected = prompts.pick_one('Selecciona un cliente:', clients, allow_create=True)
     if selected is None:
         return _create_new_client(settings)
     return load(selected, settings.clients_config_dir)
@@ -45,7 +46,7 @@ def _create_new_client(settings: Settings) -> ClientConfig:
     """Run the interactive editor for a brand-new client and persist it."""
     cfg = edit_configuration_interactive(existing=None)
     saved = save(cfg, settings.clients_config_dir)
-    typer.echo(f'Configuración guardada en {saved}')
+    ui.success(f'Configuración guardada en {saved}')
     return cfg
 
 
@@ -76,10 +77,10 @@ def main(
         else:
             client = _select_or_create_client(settings)
     except ClientConfigError as err:
-        typer.echo(f'Error de configuración: {err}', err=True)
+        ui.error(f'Error de configuración: {err}')
         raise typer.Exit(code=1) from err
 
-    typer.echo(f"\nTrabajando con el cliente: '{client.technical_name}'")
+    ui.info(f"Trabajando con el cliente: '{client.technical_name}'")
     ctx.obj = AppContext(settings=settings, client=client)
 
 
@@ -94,7 +95,7 @@ def backup_command(
     """Realiza un backup de la base de datos Odoo."""
     actx = get_context(ctx)
     backup_odoo_instance(actx.client, actx.settings, with_filestore=with_filestore)
-    typer.echo('Backup completado.')
+    ui.success('Backup completado.')
 
 
 @app.command(name='restore')
@@ -102,7 +103,7 @@ def restore_command(ctx: typer.Context) -> None:
     """Restaura una base de datos Odoo."""
     actx = get_context(ctx)
     restore_odoo_database(actx.client, actx.settings)
-    typer.echo('Restauración completada.')
+    ui.success('Restauración completada.')
 
 
 @app.command(name='upgrade')
@@ -114,9 +115,9 @@ def upgrade_command(
     actx = get_context(ctx)
     try:
         upgraded_file = upgrade_database(actx.client, backup_file)
-        typer.echo(f'Base de datos actualizada. Archivo: {upgraded_file}')
+        ui.success(f'Base de datos actualizada. Archivo: {upgraded_file}')
     except OdooCLIError as err:
-        typer.echo(f'Error durante la actualización: {err}')
+        ui.error(f'Error durante la actualización: {err}')
         raise typer.Exit(code=1) from err
 
 
@@ -132,7 +133,7 @@ def config_list_command(ctx: typer.Context) -> None:
     actx = get_context(ctx)
     names = list_clients(actx.settings.clients_config_dir)
     if not names:
-        typer.echo(f'No clients registered in {actx.settings.clients_config_dir}.')
+        ui.info(f'No clients registered in {actx.settings.clients_config_dir}.')
         return
     for name in names:
         marker = ' (current)' if name == actx.client.technical_name else ''
@@ -146,10 +147,10 @@ def config_edit_command(ctx: typer.Context) -> None:
     try:
         new_cfg = edit_configuration_interactive(existing=actx.client)
     except OdooCLIError as err:
-        typer.echo(f'Error: {err}', err=True)
+        ui.error(f'Error: {err}')
         raise typer.Exit(code=1) from err
     written = save(new_cfg, actx.settings.clients_config_dir)
-    typer.echo(f'Configuration saved to {written}')
+    ui.success(f'Configuración guardada en {written}')
 
 
 @config_app.command('delete')
@@ -162,15 +163,15 @@ def config_delete_command(
     actx = get_context(ctx)
     target = actx.settings.clients_config_dir / f'{name}.toml'
     if not target.is_file():
-        typer.echo(f'Client {name!r} not found at {target}', err=True)
+        ui.error(f'Client {name!r} not found at {target}')
         raise typer.Exit(code=1)
 
-    if not yes and not prompts.confirm(f'Delete {target}?', default=False):
-        typer.echo('Aborted.')
+    if not yes and not prompts.confirm(f'¿Borrar {target}?', default=False):
+        ui.muted('Cancelado.')
         return
 
     target.unlink()
-    typer.echo(f'Deleted {target}')
+    ui.success(f'Borrado {target}')
 
 
 @config_app.command('show')
@@ -178,20 +179,20 @@ def config_show_command(ctx: typer.Context) -> None:
     """Print the current client's configuration."""
     actx = get_context(ctx)
     cli = actx.client
-    typer.echo(f'Client: {cli.technical_name}')
-    typer.echo(f'  filestore_dir          : {cli.filestore_dir}')
-    typer.echo(f'  database.db_name       : {cli.database.db_name}')
-    typer.echo(f'  docker.db_container    : {cli.docker.db_container}')
-    typer.echo(f'  odoo.install_mode      : {cli.odoo.install_mode}')
+    ui.section(f'Cliente: {cli.technical_name}')
+    ui.kv('filestore_dir', cli.filestore_dir)
+    ui.kv('database.db_name', cli.database.db_name)
+    ui.kv('docker.db_container', cli.docker.db_container)
+    ui.kv('odoo.install_mode', cli.odoo.install_mode)
     if cli.odoo.install_mode == 'docker':
-        typer.echo(f'  odoo.container_name    : {cli.odoo.container_name}')
-    typer.echo(f'  odoo.odoo_bin_path     : {cli.odoo.odoo_bin_path or "(auto-detect)"}')
+        ui.kv('odoo.container_name', cli.odoo.container_name)
+    ui.kv('odoo.odoo_bin_path', cli.odoo.odoo_bin_path or '(auto-detect)')
     if cli.odoo.install_mode != 'docker':
-        typer.echo(f'  odoo.odoo_conf_path    : {cli.odoo.odoo_conf_path or "(none)"}')
-        typer.echo(f'  odoo.python_executable : {cli.odoo.python_executable or "(shebang)"}')
-    typer.echo(f'  upgrade.target         : {cli.upgrade.target}')
-    typer.echo(f'  upgrade.environment    : {cli.upgrade.environment}')
-    typer.echo(f'  upgrade.code_subscript : {cli.upgrade.code_subscription}')
+        ui.kv('odoo.odoo_conf_path', cli.odoo.odoo_conf_path or '(none)')
+        ui.kv('odoo.python_executable', cli.odoo.python_executable or '(shebang)')
+    ui.kv('upgrade.target', cli.upgrade.target or '(no configurado)')
+    ui.kv('upgrade.environment', cli.upgrade.environment or '(no configurado)')
+    ui.kv('upgrade.code_subscription', cli.upgrade.code_subscription or '(no configurado)')
 
 
 # --- 'backups' sub-app ---------------------------------------------------
@@ -206,11 +207,11 @@ def backups_list_command(ctx: typer.Context) -> None:
     actx = get_context(ctx)
     backup_dir = actx.settings.backups_dir
     if not backup_dir.is_dir():
-        typer.echo(f'No backups directory yet: {backup_dir}.')
+        ui.info(f'No backups directory yet: {backup_dir}.')
         return
     zips = sorted(backup_dir.glob('*.zip'))
     if not zips:
-        typer.echo(f'No .zip backups in {backup_dir}.')
+        ui.info(f'No .zip backups in {backup_dir}.')
         return
     for p in zips:
         size_mb = p.stat().st_size / (1024 * 1024)
@@ -231,12 +232,12 @@ def _prompt_select_backup_file(settings: Settings, prompt_message: str) -> str |
     """List available ``.zip`` backups and let the user pick one."""
     backup_dir = settings.backups_dir
     if not backup_dir.is_dir():
-        typer.echo(f'No backups directory yet: {backup_dir}.')
+        ui.info(f'No hay directorio de backups todavía: {backup_dir}.')
         return None
 
     zip_paths = sorted(backup_dir.glob('*.zip'))
     if not zip_paths:
-        typer.echo(f'No .zip backup files found in {backup_dir}.')
+        ui.info(f'No se encontraron archivos .zip en {backup_dir}.')
         return None
 
     name_to_path = {p.name: str(p) for p in zip_paths}
@@ -245,17 +246,30 @@ def _prompt_select_backup_file(settings: Settings, prompt_message: str) -> str |
 
 
 def _do_interactive_backup(actx: AppContext) -> None:
-    with_filestore = prompts.confirm('Include filestore in the backup?', default=True)
+    with_filestore = prompts.confirm('¿Incluir filestore en el backup?', default=True)
     backup_odoo_instance(actx.client, actx.settings, with_filestore=with_filestore)
-    typer.echo('Backup operation completed.')
+    ui.success('Backup completado.')
 
 
-def _do_interactive_upgrade(actx: AppContext) -> None:
-    selected = _prompt_select_backup_file(actx.settings, 'Select a backup file to upgrade')
+def _do_interactive_upgrade(actx: AppContext) -> AppContext:
+    """Prompt for the upgrade-specific settings, persist them, and run upgrade."""
+    try:
+        new_cfg = ask_upgrade_settings(actx.client)
+    except OdooCLIError as err:
+        ui.error(f'Cancelado: {err}')
+        return actx
+    save(new_cfg, actx.settings.clients_config_dir)
+    ui.success('Datos de actualización guardados.')
+
+    selected = _prompt_select_backup_file(actx.settings, 'Selecciona un backup para actualizar:')
     if selected is None:
-        return
-    upgrade_database(actx.client, backup_file=selected)
-    typer.echo('Upgrade operation completed.')
+        return AppContext(settings=actx.settings, client=new_cfg)
+    try:
+        upgrade_database(new_cfg, backup_file=selected)
+        ui.success('Operación de actualización completada.')
+    except OdooCLIError as err:
+        ui.error(f'Error durante la actualización: {err}')
+    return AppContext(settings=actx.settings, client=new_cfg)
 
 
 def _do_interactive_edit_config(actx: AppContext) -> AppContext:
@@ -268,39 +282,47 @@ def _do_interactive_edit_config(actx: AppContext) -> AppContext:
     try:
         new_cfg = edit_configuration_interactive(existing=actx.client)
     except OdooCLIError as err:
-        typer.echo(f'Error al editar la configuración: {err}')
+        ui.error(f'Error al editar la configuración: {err}')
         return actx
     save(new_cfg, actx.settings.clients_config_dir)
-    typer.echo('Configuración guardada.')
+    ui.success('Configuración guardada.')
     return AppContext(settings=actx.settings, client=new_cfg)
+
+
+# --- Interactive menu -----------------------------------------------------
+
+# Menu choices kept as constants so tests can reference them by symbol.
+_MENU_BACKUP = 'Realizar Backup'
+_MENU_RESTORE = 'Restaurar Base de Datos'
+_MENU_UPGRADE = 'Actualizar Base de Datos'
+_MENU_EDIT = 'Editar Configuración'
+_MENU_EXIT = 'Salir'
+
+_MENU_CHOICES = (_MENU_BACKUP, _MENU_RESTORE, _MENU_UPGRADE, _MENU_EDIT, _MENU_EXIT)
 
 
 @app.command(name='interactive')
 def interactive_command(ctx: typer.Context) -> None:
     """Inicia el modo interactivo para la herramienta Odoo CLI."""
     actx = get_context(ctx)
+    ui.banner('Odoo CLI Tool', subtitle=f'Cliente activo: {actx.client.technical_name}')
 
     while True:
-        typer.echo('\n--- Menú Principal ---')
-        typer.echo('1. Realizar Backup')
-        typer.echo('2. Restaurar Base de Datos')
-        typer.echo('3. Actualizar Base de Datos')
-        typer.echo('4. Editar Configuración')
-        typer.echo('0. Salir')
+        try:
+            choice = prompts.pick_one('¿Qué quieres hacer?', list(_MENU_CHOICES))
+        except OdooCLIError:
+            ui.muted('Saliendo del modo interactivo.')
+            return
 
-        choice = typer.prompt('Selecciona una opción', type=int)
-
-        if choice == 0:
-            typer.echo('Saliendo del modo interactivo. ¡Hasta luego!')
-            raise typer.Exit()
-        if choice == 1:
+        if choice == _MENU_EXIT or choice is None:
+            ui.muted('Saliendo del modo interactivo. ¡Hasta luego!')
+            return
+        if choice == _MENU_BACKUP:
             _do_interactive_backup(actx)
-        elif choice == 2:
+        elif choice == _MENU_RESTORE:
             restore_odoo_database(actx.client, actx.settings)
-            typer.echo('Operación de Restauración completada.')
-        elif choice == 3:
-            _do_interactive_upgrade(actx)
-        elif choice == 4:
+            ui.success('Operación de restauración completada.')
+        elif choice == _MENU_UPGRADE:
+            actx = _do_interactive_upgrade(actx)
+        elif choice == _MENU_EDIT:
             actx = _do_interactive_edit_config(actx)
-        else:
-            typer.echo('Opción no válida. Por favor, intenta de nuevo.')

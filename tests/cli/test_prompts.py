@@ -43,7 +43,7 @@ def test_pick_one_with_allow_create_signals_create(monkeypatch: pytest.MonkeyPat
 
 def test_pick_one_aborted_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(prompts.questionary, 'select', MagicMock(return_value=_FakeQuestion(None)))
-    with pytest.raises(OdooCLIError, match='cancelled'):
+    with pytest.raises(OdooCLIError, match='cancelada'):
         prompts.pick_one('Pick:', ['x'])
 
 
