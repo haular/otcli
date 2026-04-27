@@ -45,9 +45,9 @@ dev = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/haular/odoo_cli_tool"
-"Bug Tracker" = "https://github.com/haular/odoo_cli_tool/issues"
-"Changelog" = "https://github.com/haular/odoo_cli_tool/blob/main/CHANGELOG.md"
+"Homepage" = "https://github.com/haular/otcli"
+"Bug Tracker" = "https://github.com/haular/otcli/issues"
+"Changelog" = "https://github.com/haular/otcli/blob/main/CHANGELOG.md"
 
 [project.scripts]
 otcli = "otcli.__main__:main"
@@ -81,10 +81,6 @@ quote-style = "single"
 
 [tool.ruff.lint.isort]
 section-order = ["future", "standard-library", "third-party", "odoo", "odoo-addons", "first-party", "local-folder"]
-
-[tool.ruff.lint.isort.sections]
-"odoo" = ["odoo"]
-"odoo-addons" = ["odoo.addons"]
 
 [tool.mypy]
 python_version = "3.12"
